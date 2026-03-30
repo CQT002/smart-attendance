@@ -1,0 +1,29 @@
+app:
+  name: SmartAttendance
+  port: "8080"
+  env: development       # development | production
+  debug: true
+  version: "1.0.0"
+
+database:
+  host: localhost
+  port: "5432"
+  name: smart_attendance
+  user: postgres
+  password: postgres
+  ssl_mode: disable
+  max_open_conns: 25     # Tối ưu cho 5000 concurrent users
+  max_idle_conns: 10
+  conn_max_lifetime: 300 # seconds
+
+redis:
+  host: localhost
+  port: "6379"
+  password: ""
+  db: 0
+  pool_size: 10
+
+jwt:
+  secret: "secret"
+  expire_hours: 24
+  refresh_expire_days: 7

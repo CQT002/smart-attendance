@@ -1,0 +1,47 @@
+# ========================
+# Go (sa-api)
+# ========================
+bin/
+vendor/
+*.exe
+*.test
+coverage.out
+
+# ========================
+# Node / Next.js (sa-web)
+# ========================
+node_modules/
+.next/
+out/
+.turbo/
+
+# ========================
+# Flutter (sa-mb)
+# ========================
+.dart_tool/
+build/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+*.iml
+
+# ========================
+# Environment & Secrets
+# ========================
+.env
+.env.*
+!.env.example
+
+# ========================
+# OS
+# ========================
+.DS_Store
+Thumbs.db
+
+# ========================
+# IDE
+# ========================
+.idea/
+.vscode/
+*.swp
+*.swo

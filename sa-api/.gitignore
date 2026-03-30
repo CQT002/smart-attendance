@@ -1,0 +1,26 @@
+# Environment
+.env
+*.env
+
+# Build output
+bin/
+dist/
+
+# Go
+*.exe
+*.test
+coverage.out
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker volumes
+postgres_data/
+redis_data/
