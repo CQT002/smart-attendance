@@ -1,3 +1,4 @@
+import 'package:dio/dio.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../../domain/repositories/auth_repository.dart';
 import 'auth_event.dart';
@@ -17,18 +18,9 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     AuthCheckRequested event,
     Emitter<AuthState> emit,
   ) async {
-    final isLoggedIn = await _authRepository.isLoggedIn();
-    if (isLoggedIn) {
-      try {
-        final user = await _authRepository.getMe();
-        emit(AuthAuthenticated(user));
-      } catch (_) {
-        await _authRepository.logout();
-        emit(AuthUnauthenticated());
-      }
-    } else {
-      emit(AuthUnauthenticated());
-    }
+    // Luôn yêu cầu đăng nhập mỗi lần khởi động app (bảo mật cho app chấm công)
+    await _authRepository.logout();
+    emit(AuthUnauthenticated());
   }
 
   Future<void> _onLoginRequested(
@@ -43,7 +35,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       );
       emit(AuthAuthenticated(loginResponse.user));
     } catch (e) {
-      emit(AuthFailure(e.toString().replaceFirst('Exception: ', '')));
+      emit(AuthFailure(_extractMessage(e)));
     }
   }
 
@@ -66,5 +58,28 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       await _authRepository.logout();
       emit(AuthUnauthenticated());
     }
+  }
+
+  String _extractMessage(Object e) {
+    if (e is DioException) {
+      final data = e.response?.data;
+      if (data is Map<String, dynamic>) {
+        final error = data['error'];
+        if (error is Map<String, dynamic> && error['message'] != null) {
+          return error['message'].toString();
+        }
+      }
+      switch (e.type) {
+        case DioExceptionType.connectionTimeout:
+        case DioExceptionType.sendTimeout:
+        case DioExceptionType.receiveTimeout:
+          return 'Kết nối tới máy chủ bị timeout. Vui lòng thử lại.';
+        case DioExceptionType.connectionError:
+          return 'Không thể kết nối tới máy chủ. Vui lòng kiểm tra mạng.';
+        default:
+          return 'Đăng nhập thất bại. Vui lòng thử lại.';
+      }
+    }
+    return e.toString().replaceFirst('Exception: ', '');
   }
 }

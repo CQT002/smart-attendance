@@ -41,7 +41,7 @@ class AttendanceCard extends StatelessWidget {
                 _buildTimeInfo(
                   context,
                   icon: Icons.login_rounded,
-                  label: 'Vao',
+                  label: 'Vào',
                   time: attendance.checkInTime != null
                       ? AppDateUtils.formatTime(attendance.checkInTime!)
                       : '--:--',
@@ -52,7 +52,7 @@ class AttendanceCard extends StatelessWidget {
                 _buildTimeInfo(
                   context,
                   icon: Icons.logout_rounded,
-                  label: 'Ra',
+                  label: 'Ra ',
                   time: attendance.checkOutTime != null
                       ? AppDateUtils.formatTime(attendance.checkOutTime!)
                       : '--:--',
@@ -72,7 +72,7 @@ class AttendanceCard extends StatelessWidget {
                         ),
                       ),
                       Text(
-                        'Gio lam',
+                        'Giờ làm',
                         style: theme.textTheme.bodySmall?.copyWith(
                           color: AppColors.textSecondary,
                         ),

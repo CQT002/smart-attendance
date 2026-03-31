@@ -53,8 +53,7 @@ class _SmartAttendanceAppState extends State<SmartAttendanceApp> {
         title: 'Smart Attendance',
         debugShowCheckedModeBanner: false,
         theme: AppTheme.lightTheme(),
-        darkTheme: AppTheme.darkTheme(),
-        themeMode: ThemeMode.system,
+        themeMode: ThemeMode.light,
         home: BlocBuilder<AuthBloc, AuthState>(
           builder: (context, state) {
             if (state is AuthAuthenticated) {
@@ -71,7 +70,7 @@ class _SmartAttendanceAppState extends State<SmartAttendanceApp> {
               );
             }
 
-            if (state is AuthLoading || state is AuthInitial) {
+            if (state is AuthInitial) {
               return const Scaffold(
                 body: Center(
                   child: CircularProgressIndicator(),
@@ -79,6 +78,7 @@ class _SmartAttendanceAppState extends State<SmartAttendanceApp> {
               );
             }
 
+            // AuthUnauthenticated, AuthLoading, AuthFailure → show login
             return const LoginScreen();
           },
         ),

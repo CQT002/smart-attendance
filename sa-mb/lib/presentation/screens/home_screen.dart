@@ -10,6 +10,7 @@ import '../blocs/attendance/attendance_state.dart';
 import '../blocs/auth/auth_bloc.dart';
 import '../blocs/auth/auth_event.dart';
 import '../blocs/auth/auth_state.dart';
+import '../widgets/app_toast.dart';
 import '../widgets/status_badge.dart';
 import 'history_screen.dart';
 import 'check_in_screen.dart';
@@ -50,17 +51,17 @@ class _HomeScreenState extends State<HomeScreen> {
           NavigationDestination(
             icon: Icon(Icons.home_outlined),
             selectedIcon: Icon(Icons.home),
-            label: 'Trang chu',
+            label: 'Trang chủ',
           ),
           NavigationDestination(
             icon: Icon(Icons.history_outlined),
             selectedIcon: Icon(Icons.history),
-            label: 'Lich su',
+            label: 'Lịch sử',
           ),
           NavigationDestination(
             icon: Icon(Icons.person_outlined),
             selectedIcon: Icon(Icons.person),
-            label: 'Ca nhan',
+            label: 'Cá nhân',
           ),
         ],
       ),
@@ -109,11 +110,11 @@ class _HomeTab extends StatelessWidget {
     final now = DateTime.now();
     String greeting;
     if (now.hour < 12) {
-      greeting = 'Chao buoi sang';
+      greeting = 'Chào buổi sáng';
     } else if (now.hour < 18) {
-      greeting = 'Chao buoi chieu';
+      greeting = 'Chào buổi chiều';
     } else {
-      greeting = 'Chao buoi toi';
+      greeting = 'Chào buổi tối';
     }
 
     return Column(
@@ -127,7 +128,7 @@ class _HomeTab extends StatelessWidget {
         ),
         const SizedBox(height: 4),
         Text(
-          user?.name ?? 'Nhan vien',
+          user?.name ?? 'Nhân viên',
           style: theme.textTheme.headlineSmall?.copyWith(
             fontWeight: FontWeight.bold,
           ),
@@ -183,7 +184,7 @@ class _HomeTab extends StatelessWidget {
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Text(
-                      'Hom nay',
+                      'Hôm nay',
                       style: theme.textTheme.titleMedium?.copyWith(
                         fontWeight: FontWeight.w600,
                       ),
@@ -234,7 +235,7 @@ class _HomeTab extends StatelessWidget {
                       child: _buildTimeBlock(
                         context,
                         icon: Icons.access_time_rounded,
-                        label: 'Gio lam',
+                        label: 'Giờ làm',
                         time: today != null
                             ? AppDateUtils.formatWorkHours(today.workHours)
                             : '0h',
@@ -283,29 +284,13 @@ class _HomeTab extends StatelessWidget {
     return BlocConsumer<AttendanceBloc, AttendanceState>(
       listener: (context, state) {
         if (state is AttendanceCheckInSuccess) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Check-in thanh cong!'),
-              backgroundColor: AppColors.success,
-              behavior: SnackBarBehavior.floating,
-            ),
-          );
+          AppToast.show(context,
+              message: 'Check-in thành công!', type: ToastType.success);
         } else if (state is AttendanceCheckOutSuccess) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Check-out thanh cong!'),
-              backgroundColor: AppColors.success,
-              behavior: SnackBarBehavior.floating,
-            ),
-          );
+          AppToast.show(context,
+              message: 'Check-out thành công!', type: ToastType.success);
         } else if (state is AttendanceFailure) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(state.message),
-              backgroundColor: AppColors.error,
-              behavior: SnackBarBehavior.floating,
-            ),
-          );
+          AppToast.show(context, message: state.message);
         }
       },
       builder: (context, state) {
@@ -329,7 +314,7 @@ class _HomeTab extends StatelessWidget {
                   Icon(Icons.check_circle, color: AppColors.success),
                   SizedBox(width: 8),
                   Text(
-                    'Ban da hoan thanh cham cong hom nay',
+                    'Bạn đã hoàn thành chấm công hôm nay',
                     style: TextStyle(
                       color: AppColors.success,
                       fontWeight: FontWeight.w600,
@@ -358,7 +343,7 @@ class _HomeTab extends StatelessWidget {
                         ),
                       )
                     : const Icon(Icons.login_rounded),
-                label: Text(isLoading ? 'Dang xu ly...' : 'Check-in'),
+                label: Text(isLoading ? 'Đang xử lý...' : 'Check-in'),
               ),
             if (hasCheckedIn && !hasCheckedOut) ...[
               OutlinedButton.icon(
@@ -376,7 +361,7 @@ class _HomeTab extends StatelessWidget {
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
                     : const Icon(Icons.logout_rounded),
-                label: Text(isLoading ? 'Dang xu ly...' : 'Check-out'),
+                label: Text(isLoading ? 'Đang xử lý...' : 'Check-out'),
               ),
             ],
           ],
@@ -452,11 +437,11 @@ class _ProfileTab extends StatelessWidget {
                 const SizedBox(height: 32),
 
                 // Info cards
-                _buildInfoItem(context, Icons.badge_outlined, 'Ma NV', user?.employeeCode ?? ''),
+                _buildInfoItem(context, Icons.badge_outlined, 'Mã NV', user?.employeeCode ?? ''),
                 _buildInfoItem(context, Icons.email_outlined, 'Email', user?.email ?? ''),
-                _buildInfoItem(context, Icons.phone_outlined, 'SDT', user?.phone ?? ''),
-                _buildInfoItem(context, Icons.business_outlined, 'Chi nhanh', user?.branch?.name ?? ''),
-                _buildInfoItem(context, Icons.apartment_outlined, 'Phong ban', user?.department ?? ''),
+                _buildInfoItem(context, Icons.phone_outlined, 'SĐT', user?.phone ?? ''),
+                _buildInfoItem(context, Icons.business_outlined, 'Chi nhánh', user?.branch?.name ?? ''),
+                _buildInfoItem(context, Icons.apartment_outlined, 'Phòng ban', user?.department ?? ''),
                 const SizedBox(height: 32),
 
                 // Logout button
@@ -467,19 +452,19 @@ class _ProfileTab extends StatelessWidget {
                       showDialog(
                         context: context,
                         builder: (ctx) => AlertDialog(
-                          title: const Text('Dang xuat'),
-                          content: const Text('Ban co chac muon dang xuat?'),
+                          title: const Text('Đăng xuất'),
+                          content: const Text('Bạn có chắc muốn đăng xuất?'),
                           actions: [
                             TextButton(
                               onPressed: () => Navigator.pop(ctx),
-                              child: const Text('Huy'),
+                              child: const Text('Huỷ'),
                             ),
                             TextButton(
                               onPressed: () {
                                 Navigator.pop(ctx);
                                 context.read<AuthBloc>().add(AuthLogoutRequested());
                               },
-                              child: const Text('Dang xuat'),
+                              child: const Text('Đăng xuất'),
                             ),
                           ],
                         ),
@@ -487,7 +472,7 @@ class _ProfileTab extends StatelessWidget {
                     },
                     icon: const Icon(Icons.logout, color: AppColors.error),
                     label: const Text(
-                      'Dang xuat',
+                      'Đăng xuất',
                       style: TextStyle(color: AppColors.error),
                     ),
                     style: OutlinedButton.styleFrom(

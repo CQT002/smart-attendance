@@ -1,11 +1,59 @@
+import 'dart:io' show Platform;
+
 import 'package:dio/dio.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../constants/api_constants.dart';
 import '../constants/app_constants.dart';
 
+/// Token storage abstraction to handle platform differences.
+/// macOS sandbox blocks Keychain without signing, so we fall back
+/// to SharedPreferences on desktop platforms.
+class _TokenStorage {
+  final FlutterSecureStorage? _secure;
+  SharedPreferences? _prefs;
+  final bool _useFallback;
+
+  _TokenStorage()
+      : _useFallback = Platform.isMacOS || Platform.isWindows || Platform.isLinux,
+        _secure = (Platform.isMacOS || Platform.isWindows || Platform.isLinux)
+            ? null
+            : const FlutterSecureStorage();
+
+  Future<void> _ensurePrefs() async {
+    _prefs ??= await SharedPreferences.getInstance();
+  }
+
+  Future<String?> read(String key) async {
+    if (_useFallback) {
+      await _ensurePrefs();
+      return _prefs!.getString(key);
+    }
+    return _secure!.read(key: key);
+  }
+
+  Future<void> write(String key, String value) async {
+    if (_useFallback) {
+      await _ensurePrefs();
+      await _prefs!.setString(key, value);
+    } else {
+      await _secure!.write(key: key, value: value);
+    }
+  }
+
+  Future<void> delete(String key) async {
+    if (_useFallback) {
+      await _ensurePrefs();
+      await _prefs!.remove(key);
+    } else {
+      await _secure!.delete(key: key);
+    }
+  }
+}
+
 class ApiClient {
   late final Dio _dio;
-  final FlutterSecureStorage _storage = const FlutterSecureStorage();
+  final _TokenStorage _storage = _TokenStorage();
 
   ApiClient() {
     _dio = Dio(
@@ -23,7 +71,7 @@ class ApiClient {
     _dio.interceptors.add(
       InterceptorsWrapper(
         onRequest: (options, handler) async {
-          final token = await _storage.read(key: AppConstants.tokenKey);
+          final token = await _storage.read(AppConstants.tokenKey);
           if (token != null) {
             options.headers['Authorization'] = 'Bearer $token';
           }
@@ -31,8 +79,8 @@ class ApiClient {
         },
         onError: (error, handler) async {
           if (error.response?.statusCode == 401) {
-            await _storage.delete(key: AppConstants.tokenKey);
-            await _storage.delete(key: AppConstants.refreshTokenKey);
+            await _storage.delete(AppConstants.tokenKey);
+            await _storage.delete(AppConstants.refreshTokenKey);
           }
           handler.next(error);
         },
@@ -57,16 +105,16 @@ class ApiClient {
   }
 
   Future<void> saveTokens(String accessToken, String refreshToken) async {
-    await _storage.write(key: AppConstants.tokenKey, value: accessToken);
-    await _storage.write(key: AppConstants.refreshTokenKey, value: refreshToken);
+    await _storage.write(AppConstants.tokenKey, accessToken);
+    await _storage.write(AppConstants.refreshTokenKey, refreshToken);
   }
 
   Future<void> clearTokens() async {
-    await _storage.delete(key: AppConstants.tokenKey);
-    await _storage.delete(key: AppConstants.refreshTokenKey);
+    await _storage.delete(AppConstants.tokenKey);
+    await _storage.delete(AppConstants.refreshTokenKey);
   }
 
   Future<String?> getAccessToken() {
-    return _storage.read(key: AppConstants.tokenKey);
+    return _storage.read(AppConstants.tokenKey);
   }
 }

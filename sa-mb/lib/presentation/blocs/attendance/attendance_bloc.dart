@@ -1,3 +1,4 @@
+import 'package:dio/dio.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../../data/models/user_model.dart';
 import '../../../data/services/device_service.dart';
@@ -45,7 +46,7 @@ class AttendanceBloc extends Bloc<AttendanceEvent, AttendanceState> {
       final today = await _attendanceRepository.getTodayAttendance();
       emit(AttendanceTodayLoaded(today));
     } catch (e) {
-      emit(AttendanceFailure(e.toString().replaceFirst('Exception: ', '')));
+      emit(AttendanceFailure(_extractMessage(e)));
     }
   }
 
@@ -109,8 +110,7 @@ class AttendanceBloc extends Bloc<AttendanceEvent, AttendanceState> {
 
       emit(AttendanceCheckInSuccess(attendance));
     } catch (e) {
-      final message = e.toString().replaceFirst('Exception: ', '');
-      emit(AttendanceFailure(message));
+      emit(AttendanceFailure(_extractMessage(e)));
     }
   }
 
@@ -170,8 +170,7 @@ class AttendanceBloc extends Bloc<AttendanceEvent, AttendanceState> {
 
       emit(AttendanceCheckOutSuccess(attendance));
     } catch (e) {
-      final message = e.toString().replaceFirst('Exception: ', '');
-      emit(AttendanceFailure(message));
+      emit(AttendanceFailure(_extractMessage(e)));
     }
   }
 
@@ -191,7 +190,36 @@ class AttendanceBloc extends Bloc<AttendanceEvent, AttendanceState> {
         hasMore: records.length >= 20,
       ));
     } catch (e) {
-      emit(AttendanceFailure(e.toString().replaceFirst('Exception: ', '')));
+      emit(AttendanceFailure(_extractMessage(e)));
     }
+  }
+
+  String _extractMessage(Object e) {
+    if (e is DioException) {
+      final data = e.response?.data;
+      if (data is Map<String, dynamic>) {
+        final error = data['error'];
+        if (error is Map<String, dynamic> && error['message'] != null) {
+          return error['message'].toString();
+        }
+      }
+      switch (e.type) {
+        case DioExceptionType.connectionTimeout:
+        case DioExceptionType.sendTimeout:
+        case DioExceptionType.receiveTimeout:
+          return 'Kết nối tới máy chủ bị timeout. Vui lòng thử lại.';
+        case DioExceptionType.connectionError:
+          return 'Không thể kết nối tới máy chủ. Vui lòng kiểm tra mạng.';
+        case DioExceptionType.badResponse:
+          final code = e.response?.statusCode;
+          if (code == 404) return 'Không tìm thấy dữ liệu.';
+          if (code == 401) return 'Phiên đăng nhập đã hết hạn.';
+          if (code == 403) return 'Bạn không có quyền thực hiện thao tác này.';
+          return 'Lỗi máy chủ ($code). Vui lòng thử lại.';
+        default:
+          return 'Đã xảy ra lỗi. Vui lòng thử lại.';
+      }
+    }
+    return e.toString().replaceFirst('Exception: ', '');
   }
 }

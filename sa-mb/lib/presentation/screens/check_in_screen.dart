@@ -4,6 +4,7 @@ import '../../core/theme/app_colors.dart';
 import '../blocs/attendance/attendance_bloc.dart';
 import '../blocs/attendance/attendance_event.dart';
 import '../blocs/attendance/attendance_state.dart';
+import '../widgets/app_toast.dart';
 
 class CheckInScreen extends StatefulWidget {
   final bool isCheckIn;
@@ -50,13 +51,7 @@ class _CheckInScreenState extends State<CheckInScreen> {
               state is AttendanceCheckOutSuccess) {
             Navigator.of(context).pop();
           } else if (state is AttendanceFailure) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(state.message),
-                backgroundColor: AppColors.error,
-                behavior: SnackBarBehavior.floating,
-              ),
-            );
+            AppToast.show(context, message: state.message);
           }
         },
         child: Padding(
@@ -66,7 +61,7 @@ class _CheckInScreenState extends State<CheckInScreen> {
             children: [
               // Method selection
               Text(
-                'Chon phuong thuc cham cong',
+                'Chọn phương thức chấm công',
                 style: theme.textTheme.titleMedium?.copyWith(
                   fontWeight: FontWeight.w600,
                 ),
@@ -77,7 +72,7 @@ class _CheckInScreenState extends State<CheckInScreen> {
               _buildMethodCard(
                 icon: Icons.wifi,
                 title: 'WiFi',
-                subtitle: 'Quet thong tin WiFi van phong (SSID/BSSID)',
+                subtitle: 'Quét thông tin WiFi văn phòng (SSID/BSSID)',
                 value: 'wifi',
                 color: AppColors.info,
               ),
@@ -87,7 +82,7 @@ class _CheckInScreenState extends State<CheckInScreen> {
               _buildMethodCard(
                 icon: Icons.gps_fixed,
                 title: 'GPS',
-                subtitle: 'Xac minh vi tri GPS (Geofencing)',
+                subtitle: 'Xác minh vị trí GPS (Geofencing)',
                 value: 'gps',
                 color: AppColors.success,
               ),
@@ -107,14 +102,14 @@ class _CheckInScreenState extends State<CheckInScreen> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              'Bao mat',
+                              'Bảo mật',
                               style: theme.textTheme.titleSmall?.copyWith(
                                 fontWeight: FontWeight.w600,
                               ),
                             ),
                             const SizedBox(height: 4),
                             Text(
-                              'He thong se kiem tra VPN, Fake GPS va Device ID de chong gian lan.',
+                              'Hệ thống sẽ kiểm tra VPN, Fake GPS và Device ID để chống gian lận.',
                               style: theme.textTheme.bodySmall?.copyWith(
                                 color: AppColors.textSecondary,
                               ),
@@ -149,7 +144,7 @@ class _CheckInScreenState extends State<CheckInScreen> {
                                 ? Icons.login_rounded
                                 : Icons.logout_rounded,
                           ),
-                    label: Text(isLoading ? 'Dang xu ly...' : title),
+                    label: Text(isLoading ? 'Đang xử lý...' : title),
                     style: ElevatedButton.styleFrom(
                       backgroundColor:
                           widget.isCheckIn ? AppColors.primary : AppColors.secondary,

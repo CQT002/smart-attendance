@@ -66,6 +66,7 @@ func SetupRouter(e *echo.Echo, deps RouterDeps) {
 	attend.POST("/check-out", deps.AttendanceHandler.CheckOut,
 		middleware.CheckInRateLimiter(deps.Cache))
 	attend.GET("/today", deps.AttendanceHandler.GetMyToday)
+	attend.GET("/history", deps.AttendanceHandler.GetMyHistory)
 
 	// ── Admin portal routes ──
 	// Admin auth — login không cần JWT, me/change-password cần JWT

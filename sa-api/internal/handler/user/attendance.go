@@ -1,6 +1,10 @@
 package user
 
 import (
+	"strconv"
+	"time"
+
+	"github.com/hdbank/smart-attendance/internal/domain/repository"
 	"github.com/hdbank/smart-attendance/internal/domain/usecase"
 	"github.com/hdbank/smart-attendance/pkg/apperrors"
 	"github.com/hdbank/smart-attendance/pkg/response"
@@ -92,4 +96,53 @@ func (h *AttendanceHandler) GetMyToday(c echo.Context) error {
 		return response.Error(c, err)
 	}
 	return response.OK(c, log)
+}
+
+// GetMyHistory godoc
+// @Summary Lấy lịch sử chấm công của bản thân
+// @Tags Attendance
+// @Security BearerAuth
+// @Produce json
+// @Param date_from query string false "Ngày bắt đầu (YYYY-MM-DD)"
+// @Param date_to query string false "Ngày kết thúc (YYYY-MM-DD)"
+// @Param page query int false "Trang" default(1)
+// @Param limit query int false "Số bản ghi mỗi trang" default(20)
+// @Success 200 {object} response.Response{data=[]entity.AttendanceLog}
+// @Router /attendance/history [get]
+func (h *AttendanceHandler) GetMyHistory(c echo.Context) error {
+	userID := getUserIDFromContext(c)
+
+	page, _ := strconv.Atoi(c.QueryParam("page"))
+	if page <= 0 {
+		page = 1
+	}
+	limit, _ := strconv.Atoi(c.QueryParam("limit"))
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+
+	filter := repository.AttendanceFilter{
+		UserID: &userID,
+		Page:   page,
+		Limit:  limit,
+	}
+
+	if dateFrom := c.QueryParam("date_from"); dateFrom != "" {
+		if t, err := time.Parse("2006-01-02", dateFrom); err == nil {
+			filter.DateFrom = &t
+		}
+	}
+	if dateTo := c.QueryParam("date_to"); dateTo != "" {
+		if t, err := time.Parse("2006-01-02", dateTo); err == nil {
+			endOfDay := t.Add(24*time.Hour - time.Second)
+			filter.DateTo = &endOfDay
+		}
+	}
+
+	records, total, err := h.attendanceUsecase.GetList(c.Request().Context(), filter)
+	if err != nil {
+		return response.Error(c, err)
+	}
+
+	return response.Paginated(c, records, total, page, limit)
 }
