@@ -75,9 +75,10 @@ func (u *userUsecase) Login(ctx context.Context, req usecase.LoginRequest) (*use
 	}, nil
 }
 
-// Create tạo mới người dùng với mã hóa mật khẩu
+// Create tạo mới người dùng với mật khẩu mặc định Admin@123
 func (u *userUsecase) Create(ctx context.Context, req usecase.CreateUserRequest) (*entity.User, error) {
-	hashedPass, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+	const defaultPassword = "Admin@123"
+	hashedPass, err := bcrypt.GenerateFromPassword([]byte(defaultPassword), bcrypt.DefaultCost)
 	if err != nil {
 		return nil, apperrors.ErrInternal
 	}

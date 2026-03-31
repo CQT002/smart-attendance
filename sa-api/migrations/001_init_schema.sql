@@ -169,7 +169,7 @@ VALUES (
     'ADMIN001',
     'System Administrator',
     'admin@hdbank.com.vn',
-    '$2a$10$Zf7d7h4Cq8LkGq2v0hHY4OqT3JZhP8FtWZ6DkUQD5IYNJOvLm4vTm',
+    '$2a$10$ZSZnC8n7hO8awy2PHsSrSOY8bfwYHCpF5/yqT7yuCNK8/gcvy0CAW',
     'admin',
     TRUE
 ) ON CONFLICT (email) DO NOTHING;

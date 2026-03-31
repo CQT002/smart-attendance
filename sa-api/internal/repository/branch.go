@@ -59,6 +59,22 @@ func (r *branchRepository) FindByID(ctx context.Context, id uint) (*entity.Branc
 		}
 		return nil, apperrors.Wrap(err, 500, "DB_ERROR", "Lỗi truy vấn chi nhánh")
 	}
+
+	// Populate GPS from gps_configs
+	type gpsInfo struct {
+		Latitude  float64
+		Longitude float64
+		Radius    float64
+	}
+	var gps gpsInfo
+	if err := r.db.WithContext(ctx).Raw(
+		"SELECT latitude, longitude, radius FROM gps_configs WHERE branch_id = ? AND is_active = true ORDER BY id ASC LIMIT 1", id,
+	).Scan(&gps).Error; err == nil && gps.Latitude != 0 {
+		branch.Latitude = &gps.Latitude
+		branch.Longitude = &gps.Longitude
+		branch.GPSRadius = &gps.Radius
+	}
+
 	return &branch, nil
 }
 
@@ -99,6 +115,57 @@ func (r *branchRepository) FindAll(ctx context.Context, filter domainrepo.Branch
 		Find(&branches).Error
 	if err != nil {
 		return nil, 0, apperrors.Wrap(err, 500, "DB_ERROR", "Lỗi truy vấn danh sách chi nhánh")
+	}
+
+	// Populate computed fields (gorm:"-") from related tables
+	if len(branches) > 0 {
+		var branchIDs []uint
+		for _, b := range branches {
+			branchIDs = append(branchIDs, b.ID)
+		}
+
+		// WiFi count
+		type wifiCount struct {
+			BranchID uint
+			Count    int64
+		}
+		var wifiCounts []wifiCount
+		r.db.WithContext(ctx).Raw(
+			"SELECT branch_id, COUNT(*) as count FROM wifi_configs WHERE branch_id IN ? AND is_active = true GROUP BY branch_id",
+			branchIDs,
+		).Scan(&wifiCounts)
+		wifiMap := make(map[uint]int64)
+		for _, c := range wifiCounts {
+			wifiMap[c.BranchID] = c.Count
+		}
+
+		// GPS config (first active per branch)
+		type gpsInfo struct {
+			BranchID  uint
+			Latitude  float64
+			Longitude float64
+			Radius    float64
+		}
+		var gpsInfos []gpsInfo
+		r.db.WithContext(ctx).Raw(
+			`SELECT DISTINCT ON (branch_id) branch_id, latitude, longitude, radius
+			 FROM gps_configs WHERE branch_id IN ? AND is_active = true
+			 ORDER BY branch_id, id ASC`,
+			branchIDs,
+		).Scan(&gpsInfos)
+		gpsMap := make(map[uint]gpsInfo)
+		for _, g := range gpsInfos {
+			gpsMap[g.BranchID] = g
+		}
+
+		for _, b := range branches {
+			b.WifiCount = wifiMap[b.ID]
+			if gps, ok := gpsMap[b.ID]; ok {
+				b.Latitude = &gps.Latitude
+				b.Longitude = &gps.Longitude
+				b.GPSRadius = &gps.Radius
+			}
+		}
 	}
 
 	return branches, total, nil

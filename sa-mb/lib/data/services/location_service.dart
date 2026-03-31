@@ -21,10 +21,7 @@ class LocationService {
     if (!hasPermission) return null;
 
     return await Geolocator.getCurrentPosition(
-      locationSettings: const LocationSettings(
-        accuracy: LocationAccuracy.high,
-        distanceFilter: 0,
-      ),
+      desiredAccuracy: LocationAccuracy.high,
     );
   }
 
@@ -49,9 +46,7 @@ class LocationService {
   Future<bool> isMockLocation() async {
     try {
       final position = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.high,
-        ),
+        desiredAccuracy: LocationAccuracy.high,
       );
       return position.isMocked;
     } catch (_) {

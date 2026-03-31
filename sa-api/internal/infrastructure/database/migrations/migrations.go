@@ -52,7 +52,7 @@ func GetMigrations() []*gormigrate.Migration {
 						'ADMIN001',
 						'System Administrator',
 						'admin@hdbank.com.vn',
-						'$2a$10$Zf7d7h4Cq8LkGq2v0hHY4OqT3JZhP8FtWZ6DkUQD5IYNJOvLm4vTm',
+						'$2a$10$ZSZnC8n7hO8awy2PHsSrSOY8bfwYHCpF5/yqT7yuCNK8/gcvy0CAW',
 						'admin',
 						true,
 						NOW(), NOW()
@@ -112,6 +112,34 @@ func GetMigrations() []*gormigrate.Migration {
 				sqls := []string{
 					`DROP INDEX IF EXISTS idx_attendance_fraud`,
 					`DROP INDEX IF EXISTS idx_wifi_bssid_partial`,
+				}
+				for _, sql := range sqls {
+					if err := tx.Exec(sql).Error; err != nil {
+						return err
+					}
+				}
+				return nil
+			},
+		},
+		// ── 004: Remove latitude/longitude from branches (moved to gps_configs) ──
+		{
+			ID: "20250331000001",
+			Migrate: func(tx *gorm.DB) error {
+				sqls := []string{
+					`ALTER TABLE branches DROP COLUMN IF EXISTS latitude`,
+					`ALTER TABLE branches DROP COLUMN IF EXISTS longitude`,
+				}
+				for _, sql := range sqls {
+					if err := tx.Exec(sql).Error; err != nil {
+						return err
+					}
+				}
+				return nil
+			},
+			Rollback: func(tx *gorm.DB) error {
+				sqls := []string{
+					`ALTER TABLE branches ADD COLUMN IF NOT EXISTS latitude DECIMAL(10,8)`,
+					`ALTER TABLE branches ADD COLUMN IF NOT EXISTS longitude DECIMAL(11,8)`,
 				}
 				for _, sql := range sqls {
 					if err := tx.Exec(sql).Error; err != nil {

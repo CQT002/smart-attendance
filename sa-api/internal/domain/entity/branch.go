@@ -13,15 +13,17 @@ type Branch struct {
 	Phone    string `gorm:"size:20"                                          json:"phone"`
 	Email    string `gorm:"size:100"                                         json:"email"`
 
-	// Tọa độ GPS trụ sở chi nhánh (dùng để hiển thị map, khác với gps_configs geofencing)
-	Latitude  *float64 `gorm:"type:decimal(10,8)" json:"latitude"`
-	Longitude *float64 `gorm:"type:decimal(11,8)" json:"longitude"`
-
 	// idx_branch_city_active: dashboard filter theo tỉnh/thành phố + is_active
 	IsActive bool `gorm:"default:true;index:idx_branch_city_active,priority:2" json:"is_active"`
 
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
+
+	// Computed — không lưu DB, dùng cho API response
+	WifiCount  int64    `gorm:"-" json:"wifi_count"`
+	Latitude   *float64 `gorm:"-" json:"latitude"`
+	Longitude  *float64 `gorm:"-" json:"longitude"`
+	GPSRadius  *float64 `gorm:"-" json:"gps_radius"`
 
 	// Relations
 	Users          []User          `gorm:"foreignKey:BranchID" json:"-"`

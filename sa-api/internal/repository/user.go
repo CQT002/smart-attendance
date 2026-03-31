@@ -122,7 +122,7 @@ func (r *userRepository) FindAll(ctx context.Context, filter domainrepo.UserFilt
 	offset := (filter.Page - 1) * filter.Limit
 	var users []*entity.User
 	err := query.Preload("Branch").
-		Order("name ASC").
+		Order("id ASC").
 		Offset(offset).Limit(filter.Limit).
 		Find(&users).Error
 	if err != nil {

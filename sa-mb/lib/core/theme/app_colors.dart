@@ -1,17 +1,18 @@
 import 'package:flutter/material.dart';
 
 class AppColors {
-  // HDBank brand colors
-  static const Color primary = Color(0xFFE31837);       // HDBank Red
-  static const Color primaryDark = Color(0xFFB71430);
-  static const Color primaryLight = Color(0xFFFF5252);
-  static const Color secondary = Color(0xFF1B5E20);     // HDBank Green
-  static const Color secondaryLight = Color(0xFF4CAF50);
+  // HDBank brand colors (đỏ - vàng - trắng)
+  static const Color primary = Color(0xFFCE1126);       // HDBank Red
+  static const Color primaryDark = Color(0xFFA30E1F);
+  static const Color primaryLight = Color(0xFFE8455A);
+  static const Color secondary = Color(0xFFFFB81C);     // HDBank Gold/Yellow
+  static const Color secondaryLight = Color(0xFFFFD166);
+  static const Color secondaryDark = Color(0xFFE5A000);
 
   // Status colors
   static const Color success = Color(0xFF4CAF50);
   static const Color warning = Color(0xFFFFA726);
-  static const Color error = Color(0xFFE53935);
+  static const Color error = Color(0xFFD32F2F);
   static const Color info = Color(0xFF42A5F5);
 
   // Attendance status
@@ -22,9 +23,9 @@ class AppColors {
   static const Color statusHalfDay = Color(0xFF7E57C2);
 
   // Neutral
-  static const Color background = Color(0xFFF5F5F5);
+  static const Color background = Color(0xFFFAF9F7);
   static const Color surface = Color(0xFFFFFFFF);
-  static const Color textPrimary = Color(0xFF212121);
+  static const Color textPrimary = Color(0xFF2D2D2D);
   static const Color textSecondary = Color(0xFF757575);
   static const Color divider = Color(0xFFE0E0E0);
 

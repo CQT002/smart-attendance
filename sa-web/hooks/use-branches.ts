@@ -35,6 +35,7 @@ export function useCreateBranch() {
     mutationFn: (data: CreateBranchRequest) => branchService.create(data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["branches"] });
+      qc.invalidateQueries({ queryKey: ["dashboard-stats"] });
       toast.success("Tạo chi nhánh thành công");
     },
     onError: () => toast.error("Tạo chi nhánh thất bại"),
@@ -60,6 +61,7 @@ export function useDeleteBranch() {
     mutationFn: (id: number) => branchService.delete(id),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["branches"] });
+      qc.invalidateQueries({ queryKey: ["dashboard-stats"] });
       toast.success("Vô hiệu hoá chi nhánh thành công");
     },
     onError: () => toast.error("Thao tác thất bại"),

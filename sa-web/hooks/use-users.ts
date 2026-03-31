@@ -27,6 +27,7 @@ export function useCreateUser() {
     mutationFn: (data: CreateUserRequest) => userService.create(data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["users"] });
+      qc.invalidateQueries({ queryKey: ["dashboard-stats"] });
       toast.success("Tạo nhân viên thành công");
     },
     onError: () => toast.error("Tạo nhân viên thất bại"),
@@ -52,6 +53,7 @@ export function useDeleteUser() {
     mutationFn: (id: number) => userService.delete(id),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["users"] });
+      qc.invalidateQueries({ queryKey: ["dashboard-stats"] });
       toast.success("Vô hiệu hoá tài khoản thành công");
     },
     onError: () => toast.error("Thao tác thất bại"),

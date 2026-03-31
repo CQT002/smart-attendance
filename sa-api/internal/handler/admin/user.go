@@ -216,9 +216,6 @@ func validateCreateUser(req usecase.CreateUserRequest) error {
 	if req.Email == "" {
 		fields["email"] = "Email không được để trống"
 	}
-	if req.Password == "" || len(req.Password) < 6 {
-		fields["password"] = "Mật khẩu phải có ít nhất 6 ký tự"
-	}
 	if req.EmployeeCode == "" {
 		fields["employee_code"] = "Mã nhân viên không được để trống"
 	}

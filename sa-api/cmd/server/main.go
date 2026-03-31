@@ -79,7 +79,7 @@ func main() {
 
 	// ── 6. Init Usecases ──
 	userUC := ucUser.NewUserUsecase(userRepo, redisCache, cfg.JWT)
-	branchUC := ucBranch.NewBranchUsecase(branchRepo, redisCache)
+	branchUC := ucBranch.NewBranchUsecase(branchRepo, gpsConfigRepo, redisCache)
 	attendanceUC := ucAttendance.NewAttendanceUsecase(
 		attendanceRepo, userRepo, wifiConfigRepo, gpsConfigRepo, shiftRepo, redisCache,
 	)
@@ -95,6 +95,7 @@ func main() {
 	branchH := handlerAdmin.NewBranchHandler(branchUC)
 	adminAttendanceH := handlerAdmin.NewAttendanceHandler(attendanceUC)
 	reportH := handlerAdmin.NewReportHandler(reportUC)
+	wifiConfigH := handlerAdmin.NewWiFiConfigHandler(wifiConfigRepo)
 
 	// ── 8. Setup Echo Router ──
 	e := echo.New()
@@ -109,6 +110,7 @@ func main() {
 		BranchHandler:          branchH,
 		AdminAttendanceHandler: adminAttendanceH,
 		ReportHandler:          reportH,
+		WiFiConfigHandler:      wifiConfigH,
 		Cache:                  redisCache,
 		JWTSecret:              cfg.JWT.Secret,
 	})

@@ -10,12 +10,11 @@ import "time"
 //   - idx_wifi_bssid         : lookup nhanh theo BSSID (MAC address router)
 //     → BSSID là định danh chính xác nhất, unique trên thực tế
 type WiFiConfig struct {
-	ID       uint   `gorm:"primaryKey;autoIncrement"                                                json:"id"`
-	BranchID uint   `gorm:"not null;index:idx_wifi_branch_active,priority:1"                        json:"branch_id"`
-	Branch   Branch `gorm:"foreignKey:BranchID"                                                     json:"branch,omitempty"`
-
-	SSID        string `gorm:"size:100;not null"                                   json:"ssid"`
-	BSSID       string `gorm:"size:50;index:idx_wifi_bssid"                        json:"bssid"` // MAC address router
+	ID          uint   `gorm:"primaryKey;autoIncrement"                                                json:"id"`
+	BranchID    uint   `gorm:"not null;index:idx_wifi_branch_active,priority:1"                        json:"branch_id"`
+	Branch      Branch `gorm:"foreignKey:BranchID"                                                     json:"branch,omitempty"`
+	SSID        string `gorm:"column:ssid;size:100;not null"                        json:"ssid"`
+	BSSID       string `gorm:"column:bssid;size:50;index:idx_wifi_bssid"            json:"bssid"` // MAC address router
 	Description string `gorm:"size:200"                                            json:"description"`
 
 	// idx_wifi_branch_active priority:2

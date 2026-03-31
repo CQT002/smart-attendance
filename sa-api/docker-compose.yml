@@ -14,7 +14,6 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./migrations:/docker-entrypoint-initdb.d  # Chạy migration khi khởi tạo
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d smart_attendance"]
       interval: 10s
@@ -26,7 +25,7 @@ services:
     image: redis:7-alpine
     container_name: sa_redis
     ports:
-      - "6379:6379"
+      - "16379:6379"   # Tránh conflict với Redis local (port 6379)
     volumes:
       - redis_data:/data
     command: redis-server --save 60 1 --loglevel warning

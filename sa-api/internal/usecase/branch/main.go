@@ -12,13 +12,14 @@ import (
 )
 
 type branchUsecase struct {
-	branchRepo repository.BranchRepository
-	cache      cache.Cache
+	branchRepo    repository.BranchRepository
+	gpsConfigRepo repository.GPSConfigRepository
+	cache         cache.Cache
 }
 
 // NewBranchUsecase tạo instance BranchUsecase
-func NewBranchUsecase(branchRepo repository.BranchRepository, cache cache.Cache) usecase.BranchUsecase {
-	return &branchUsecase{branchRepo: branchRepo, cache: cache}
+func NewBranchUsecase(branchRepo repository.BranchRepository, gpsConfigRepo repository.GPSConfigRepository, cache cache.Cache) usecase.BranchUsecase {
+	return &branchUsecase{branchRepo: branchRepo, gpsConfigRepo: gpsConfigRepo, cache: cache}
 }
 
 func (u *branchUsecase) Create(ctx context.Context, req usecase.CreateBranchRequest) (*entity.Branch, error) {
@@ -26,6 +27,8 @@ func (u *branchUsecase) Create(ctx context.Context, req usecase.CreateBranchRequ
 		Code:     req.Code,
 		Name:     req.Name,
 		Address:  req.Address,
+		City:     req.City,
+		Province: req.Province,
 		Phone:    req.Phone,
 		Email:    req.Email,
 		IsActive: true,
@@ -33,6 +36,19 @@ func (u *branchUsecase) Create(ctx context.Context, req usecase.CreateBranchRequ
 
 	if err := u.branchRepo.Create(ctx, branch); err != nil {
 		return nil, err
+	}
+
+	// Tạo GPS config mặc định nếu có toạ độ và bán kính
+	if req.Latitude != nil && req.Longitude != nil && req.GPSRadius != nil {
+		gpsConfig := &entity.GPSConfig{
+			BranchID:  branch.ID,
+			Name:      req.Name,
+			Latitude:  *req.Latitude,
+			Longitude: *req.Longitude,
+			Radius:    *req.GPSRadius,
+			IsActive:  true,
+		}
+		_ = u.gpsConfigRepo.Create(ctx, gpsConfig)
 	}
 
 	// Xóa cache danh sách chi nhánh
@@ -49,11 +65,35 @@ func (u *branchUsecase) Update(ctx context.Context, id uint, req usecase.UpdateB
 
 	branch.Name = req.Name
 	branch.Address = req.Address
+	branch.City = req.City
+	branch.Province = req.Province
 	branch.Phone = req.Phone
 	branch.Email = req.Email
 
 	if err := u.branchRepo.Update(ctx, branch); err != nil {
 		return nil, err
+	}
+
+	// Sync GPS config: cập nhật geofence "Trụ sở chính" hoặc tạo mới
+	if req.Latitude != nil && req.Longitude != nil && req.GPSRadius != nil {
+		configs, _ := u.gpsConfigRepo.FindByBranch(ctx, id)
+		if len(configs) > 0 {
+			configs[0].Name = req.Name
+			configs[0].Latitude = *req.Latitude
+			configs[0].Longitude = *req.Longitude
+			configs[0].Radius = *req.GPSRadius
+			_ = u.gpsConfigRepo.Update(ctx, configs[0])
+		} else {
+			gpsConfig := &entity.GPSConfig{
+				BranchID:  id,
+				Name:      req.Name,
+				Latitude:  *req.Latitude,
+				Longitude: *req.Longitude,
+				Radius:    *req.GPSRadius,
+				IsActive:  true,
+			}
+			_ = u.gpsConfigRepo.Create(ctx, gpsConfig)
+		}
 	}
 
 	// Xóa cache

@@ -21,7 +21,8 @@ apiClient.interceptors.request.use((config) => {
 apiClient.interceptors.response.use(
   (response) => response,
   (error: AxiosError) => {
-    if (error.response?.status === 401) {
+    const isLoginRequest = error.config?.url?.includes("/auth/login");
+    if (error.response?.status === 401 && !isLoginRequest) {
       Cookies.remove("access_token");
       Cookies.remove("refresh_token");
       if (typeof window !== "undefined") {

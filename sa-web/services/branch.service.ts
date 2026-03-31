@@ -20,8 +20,24 @@ export const branchService = {
   },
 
   async create(data: CreateBranchRequest): Promise<Branch> {
-    const res = await apiClient.post<ApiResponse<Branch>>("/admin/branches", data);
-    return res.data.data!;
+    const { wifi_configs, ...branchData } = data;
+    const res = await apiClient.post<ApiResponse<Branch>>("/admin/branches", branchData);
+    const branch = res.data.data!;
+
+    // Create WiFi configs after branch is created
+    if (wifi_configs && wifi_configs.length > 0) {
+      await Promise.all(
+        wifi_configs.map((w) =>
+          apiClient.post(`/admin/branches/${branch.id}/wifi-configs`, {
+            ssid: w.ssid,
+            bssid: w.bssid || undefined,
+            description: w.description || undefined,
+          })
+        )
+      );
+    }
+
+    return branch;
   },
 
   async update(id: number, data: UpdateBranchRequest): Promise<Branch> {

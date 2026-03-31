@@ -251,7 +251,7 @@ func (r *attendanceRepository) GetTodayStatsByBranch(ctx context.Context, branch
 				b.code      AS branch_code,
 				COUNT(u.id) AS total_employees
 			FROM branches b
-			JOIN users u ON u.branch_id = b.id AND u.is_active = true
+			JOIN users u ON u.branch_id = b.id AND u.is_active = true AND u.role = 'employee'
 			WHERE b.is_active = true %s
 			GROUP BY b.id, b.name, b.code
 		),
@@ -353,7 +353,7 @@ func (r *attendanceRepository) GetTodayEmployeeDetails(ctx context.Context, filt
 			FROM users u
 			JOIN branches b ON b.id = u.branch_id AND b.is_active = true
 			LEFT JOIN attendance_logs a ON a.user_id = u.id AND a.date = CURRENT_DATE
-			WHERE u.is_active = true %s
+			WHERE u.is_active = true AND u.role = 'employee' %s
 		)
 	`, branchClause)
 

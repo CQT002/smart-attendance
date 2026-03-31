@@ -65,16 +65,16 @@ type AttendanceLog struct {
 	CheckInLat    *float64     `gorm:"type:decimal(10,8)"  json:"check_in_lat"`
 	CheckInLng    *float64     `gorm:"type:decimal(11,8)"  json:"check_in_lng"`
 	CheckInMethod *CheckMethod `gorm:"type:varchar(10)"    json:"check_in_method"`
-	CheckInSSID   string       `gorm:"size:100"            json:"check_in_ssid"`
-	CheckInBSSID  string       `gorm:"size:50"             json:"check_in_bssid"`
+	CheckInSSID   string       `gorm:"column:check_in_ssid;size:100"   json:"check_in_ssid"`
+	CheckInBSSID  string       `gorm:"column:check_in_bssid;size:50"   json:"check_in_bssid"`
 
 	// Check-out info
 	CheckOutTime   *time.Time   `json:"check_out_time"`
 	CheckOutLat    *float64     `gorm:"type:decimal(10,8)"  json:"check_out_lat"`
 	CheckOutLng    *float64     `gorm:"type:decimal(11,8)"  json:"check_out_lng"`
 	CheckOutMethod *CheckMethod `gorm:"type:varchar(10)"    json:"check_out_method"`
-	CheckOutSSID   string       `gorm:"size:100"            json:"check_out_ssid"`
-	CheckOutBSSID  string       `gorm:"size:50"             json:"check_out_bssid"`
+	CheckOutSSID   string       `gorm:"column:check_out_ssid;size:100"  json:"check_out_ssid"`
+	CheckOutBSSID  string       `gorm:"column:check_out_bssid;size:50"  json:"check_out_bssid"`
 
 	// Device & security info
 	DeviceID    string `gorm:"size:200" json:"device_id"`

@@ -10,6 +10,7 @@ export interface Branch {
   latitude: number | null;
   longitude: number | null;
   is_active: boolean;
+  wifi_count: number;
   created_at: string;
   updated_at: string;
   // GPS Geofencing
@@ -37,6 +38,7 @@ export interface CreateBranchRequest {
   latitude?: number;
   longitude?: number;
   gps_radius?: number;
+  wifi_configs?: { ssid: string; bssid: string; description: string }[];
 }
 
 export interface UpdateBranchRequest {

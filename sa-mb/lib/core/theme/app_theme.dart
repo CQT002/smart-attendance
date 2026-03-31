@@ -10,6 +10,7 @@ class AppTheme {
         seedColor: AppColors.primary,
         primary: AppColors.primary,
         secondary: AppColors.secondary,
+        tertiary: AppColors.secondaryLight,
         surface: AppColors.surface,
         error: AppColors.error,
         brightness: Brightness.light,
@@ -76,7 +77,7 @@ class AppTheme {
           borderSide: const BorderSide(color: AppColors.error),
         ),
       ),
-      cardTheme: CardTheme(
+      cardTheme: CardThemeData(
         elevation: 0,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(16),
@@ -157,7 +158,7 @@ class AppTheme {
           borderSide: const BorderSide(color: AppColors.primary, width: 2),
         ),
       ),
-      cardTheme: CardTheme(
+      cardTheme: CardThemeData(
         elevation: 0,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(16),

@@ -23,6 +23,7 @@ type RouterDeps struct {
 	BranchHandler          *handlerAdmin.BranchHandler
 	AdminAttendanceHandler *handlerAdmin.AttendanceHandler
 	ReportHandler          *handlerAdmin.ReportHandler
+	WiFiConfigHandler      *handlerAdmin.WiFiConfigHandler
 
 	Cache     cache.Cache
 	JWTSecret string
@@ -107,6 +108,16 @@ func SetupRouter(e *echo.Echo, deps RouterDeps) {
 	branches.PUT("/:id", deps.BranchHandler.Update,
 		middleware.RequireRole(entity.RoleAdmin))
 	branches.DELETE("/:id", deps.BranchHandler.Delete,
+		middleware.RequireRole(entity.RoleAdmin))
+
+	// Admin - WiFi config management (nested under branches)
+	wifiConfigs := branches.Group("/:branch_id/wifi-configs")
+	wifiConfigs.GET("", deps.WiFiConfigHandler.GetByBranch)
+	wifiConfigs.POST("", deps.WiFiConfigHandler.Create,
+		middleware.RequireRole(entity.RoleAdmin))
+	wifiConfigs.PUT("/:id", deps.WiFiConfigHandler.Update,
+		middleware.RequireRole(entity.RoleAdmin))
+	wifiConfigs.DELETE("/:id", deps.WiFiConfigHandler.Delete,
 		middleware.RequireRole(entity.RoleAdmin))
 
 	// Admin - Reports

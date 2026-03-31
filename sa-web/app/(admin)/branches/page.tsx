@@ -17,9 +17,11 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Plus, Search, Pencil, Trash2, MapPin, Wifi } from "lucide-react";
+import { Plus, Search, Pencil, Trash2, MapPin, Wifi, Eye } from "lucide-react";
 import { BranchFilter, Branch, CreateBranchRequest, UpdateBranchRequest } from "@/types/branch";
 import { BranchFormDialog } from "@/components/branches/branch-form-dialog";
+import { WifiConfigDialog } from "@/components/branches/wifi-config-dialog";
+import { BranchDetailDialog } from "@/components/branches/branch-detail-dialog";
 import { formatDate } from "@/lib/utils";
 
 export default function BranchesPage() {
@@ -27,6 +29,8 @@ export default function BranchesPage() {
   const [search, setSearch] = useState("");
   const [editingBranch, setEditingBranch] = useState<Branch | null>(null);
   const [showCreate, setShowCreate] = useState(false);
+  const [wifiBranch, setWifiBranch] = useState<Branch | null>(null);
+  const [detailBranch, setDetailBranch] = useState<Branch | null>(null);
 
   const { data, isLoading } = useBranches(filter);
   const createBranch = useCreateBranch();
@@ -75,6 +79,7 @@ export default function BranchesPage() {
                       <TableHead>Địa chỉ</TableHead>
                       <TableHead>Liên hệ</TableHead>
                       <TableHead>GPS</TableHead>
+                      <TableHead>WiFi</TableHead>
                       <TableHead>Trạng thái</TableHead>
                       <TableHead>Ngày tạo</TableHead>
                       <TableHead className="text-right">Thao tác</TableHead>
@@ -105,6 +110,29 @@ export default function BranchesPage() {
                           )}
                         </TableCell>
                         <TableCell>
+                          {branch.wifi_count > 0 ? (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8"
+                              onClick={() => setWifiBranch(branch)}
+                              title="Xem danh sách WiFi"
+                            >
+                              <Wifi className="h-4 w-4 text-green-600" />
+                            </Button>
+                          ) : (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8"
+                              disabled
+                              title="Chưa cấu hình WiFi"
+                            >
+                              <Wifi className="h-4 w-4 text-muted-foreground" />
+                            </Button>
+                          )}
+                        </TableCell>
+                        <TableCell>
                           <ActiveBadge isActive={branch.is_active} />
                         </TableCell>
                         <TableCell className="text-sm text-muted-foreground">
@@ -115,7 +143,16 @@ export default function BranchesPage() {
                             <Button
                               variant="ghost"
                               size="icon"
+                              onClick={() => setDetailBranch(branch)}
+                              title="Xem chi tiết"
+                            >
+                              <Eye className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
                               onClick={() => setEditingBranch(branch)}
+                              title="Chỉnh sửa"
                             >
                               <Pencil className="h-4 w-4" />
                             </Button>
@@ -137,7 +174,7 @@ export default function BranchesPage() {
                     ))}
                     {data?.data.length === 0 && (
                       <TableRow>
-                        <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                        <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
                           Không tìm thấy chi nhánh nào
                         </TableCell>
                       </TableRow>
@@ -178,6 +215,24 @@ export default function BranchesPage() {
               .then(() => setEditingBranch(null))
           }
           loading={updateBranch.isPending}
+        />
+      )}
+
+      {/* WiFi config dialog */}
+      {wifiBranch && (
+        <WifiConfigDialog
+          branch={wifiBranch}
+          open={!!wifiBranch}
+          onClose={() => setWifiBranch(null)}
+        />
+      )}
+
+      {/* Detail dialog */}
+      {detailBranch && (
+        <BranchDetailDialog
+          branch={detailBranch}
+          open={!!detailBranch}
+          onClose={() => setDetailBranch(null)}
         />
       )}
     </div>

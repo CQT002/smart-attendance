@@ -24,7 +24,6 @@ const createSchema = z.object({
   name: z.string().min(1, "Bắt buộc"),
   email: z.string().email("Email không hợp lệ"),
   phone: z.string().min(1, "Bắt buộc"),
-  password: z.string().min(8, "Tối thiểu 8 ký tự"),
   role: z.enum(["admin", "manager", "employee"]),
   branch_id: z.coerce.number().optional(),
   department: z.string().optional(),
@@ -74,7 +73,7 @@ export function UserFormDialog({
         avatar_url: defaultValues.avatar_url,
       });
     } else if (open) {
-      createForm.reset({});
+      createForm.reset({ role: "employee" });
     }
   }, [open, defaultValues]);
 
@@ -179,14 +178,6 @@ export function UserFormDialog({
               <Label>Số điện thoại *</Label>
               <Input placeholder="0901234567" {...createForm.register("phone")} />
             </div>
-          </div>
-
-          <div className="space-y-2">
-            <Label>Mật khẩu *</Label>
-            <Input type="password" placeholder="••••••••" {...createForm.register("password")} />
-            {createForm.formState.errors.password && (
-              <p className="text-xs text-destructive">{createForm.formState.errors.password.message}</p>
-            )}
           </div>
 
           <div className="space-y-2">

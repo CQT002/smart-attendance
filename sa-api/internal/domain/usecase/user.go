@@ -27,7 +27,6 @@ type CreateUserRequest struct {
 	Name         string           `json:"name"`
 	Email        string           `json:"email"`
 	Phone        string           `json:"phone"`
-	Password     string           `json:"password"`
 	Role         entity.UserRole  `json:"role"`
 	Department   string           `json:"department"`
 	Position     string           `json:"position"`

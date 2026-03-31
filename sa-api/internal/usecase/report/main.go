@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/hdbank/smart-attendance/internal/domain/entity"
 	"github.com/hdbank/smart-attendance/internal/domain/repository"
 	"github.com/hdbank/smart-attendance/internal/domain/usecase"
 	"github.com/hdbank/smart-attendance/internal/infrastructure/cache"
@@ -120,9 +121,9 @@ func (u *reportUsecase) computeDashboardStats(ctx context.Context, branchID *uin
 	today := time.Now()
 	todayStart := time.Date(today.Year(), today.Month(), today.Day(), 0, 0, 0, 0, today.Location())
 
-	// Đếm tổng nhân viên
+	// Đếm tổng nhân viên (chỉ role employee — admin/manager không chấm công)
 	isActive := true
-	userFilter := repository.UserFilter{BranchID: branchID, IsActive: &isActive, Page: 1, Limit: 1}
+	userFilter := repository.UserFilter{BranchID: branchID, Role: entity.RoleEmployee, IsActive: &isActive, Page: 1, Limit: 1}
 	_, totalEmployees, err := u.userRepo.FindAll(ctx, userFilter)
 	if err != nil {
 		return nil, err

@@ -1,7 +1,6 @@
 "use client";
 
 import { useCurrentUser } from "@/hooks/use-auth";
-import { useLogout } from "@/hooks/use-auth";
 import { Bell, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -11,7 +10,6 @@ interface HeaderProps {
 
 export function Header({ title }: HeaderProps) {
   const { data: user } = useCurrentUser();
-  const logout = useLogout();
 
   return (
     <header className="flex h-16 items-center justify-between border-b bg-background px-6">
@@ -25,8 +23,8 @@ export function Header({ title }: HeaderProps) {
             <User className="h-4 w-4" />
           </div>
           <div className="hidden sm:block">
-            <p className="font-medium">{user?.name ?? "..."}</p>
-            <p className="text-xs text-muted-foreground capitalize">{user?.role}</p>
+            <p className="font-medium">{user?.name ?? "\u00A0"}</p>
+            <p className="text-xs text-muted-foreground capitalize">{user?.role ?? "\u00A0"}</p>
           </div>
         </div>
       </div>
