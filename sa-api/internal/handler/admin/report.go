@@ -2,7 +2,6 @@ package admin
 
 import (
 	"strconv"
-	"time"
 
 	domainrepo "github.com/hdbank/smart-attendance/internal/domain/repository"
 	"github.com/hdbank/smart-attendance/internal/domain/usecase"
@@ -38,8 +37,9 @@ func (h *ReportHandler) GetTodayStats(c echo.Context) error {
 	pagination := utils.ParsePagination(c)
 
 	filter := usecase.TodayStatsFilter{
-		Page:  pagination.Page,
-		Limit: pagination.Limit,
+		Search: c.QueryParam("search"),
+		Page:   pagination.Page,
+		Limit:  pagination.Limit,
 	}
 
 	if middleware.IsAdmin(c) {
@@ -218,6 +218,15 @@ func (h *ReportHandler) GetBranchReport(c echo.Context) error {
 	pagination := utils.ParsePagination(c)
 	filter := buildReportFilter(c, pagination)
 
+	// Manager chỉ xem báo cáo chi nhánh mình
+	if !middleware.IsAdmin(c) {
+		branchID := middleware.GetBranchID(c)
+		if branchID == nil {
+			return response.Error(c, apperrors.ErrForbidden)
+		}
+		filter.BranchID = branchID
+	}
+
 	results, err := h.reportUsecase.GetBranchReport(c.Request().Context(), filter)
 	if err != nil {
 		return response.Error(c, err)
@@ -242,13 +251,13 @@ func (h *ReportHandler) GetUserReport(c echo.Context) error {
 		return response.Error(c, apperrors.ErrValidation)
 	}
 
-	from, err := time.Parse("2006-01-02", c.QueryParam("date_from"))
+	from, err := utils.ParseDateHCM( c.QueryParam("date_from"))
 	if err != nil {
 		return response.Error(c, apperrors.NewValidationError(map[string]string{
 			"date_from": "Định dạng ngày không hợp lệ (YYYY-MM-DD)",
 		}))
 	}
-	to, err := time.Parse("2006-01-02", c.QueryParam("date_to"))
+	to, err := utils.ParseDateHCM( c.QueryParam("date_to"))
 	if err != nil {
 		return response.Error(c, apperrors.NewValidationError(map[string]string{
 			"date_to": "Định dạng ngày không hợp lệ (YYYY-MM-DD)",
@@ -282,13 +291,13 @@ func buildReportFilter(c echo.Context, pagination utils.PaginationParams) usecas
 		filter.BranchID = &uid
 	}
 	if v := c.QueryParam("date_from"); v != "" {
-		t, err := time.Parse("2006-01-02", v)
+		t, err := utils.ParseDateHCM( v)
 		if err == nil {
 			filter.DateFrom = t
 		}
 	}
 	if v := c.QueryParam("date_to"); v != "" {
-		t, err := time.Parse("2006-01-02", v)
+		t, err := utils.ParseDateHCM( v)
 		if err == nil {
 			filter.DateTo = t
 		}

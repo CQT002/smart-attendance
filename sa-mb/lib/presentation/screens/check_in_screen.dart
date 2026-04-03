@@ -8,12 +8,10 @@ import '../widgets/app_toast.dart';
 
 class CheckInScreen extends StatefulWidget {
   final bool isCheckIn;
-  final int? attendanceId;
 
   const CheckInScreen({
     super.key,
     required this.isCheckIn,
-    this.attendanceId,
   });
 
   @override
@@ -31,7 +29,6 @@ class _CheckInScreenState extends State<CheckInScreen> {
     } else {
       context.read<AttendanceBloc>().add(
             AttendanceCheckOutRequested(
-              attendanceId: widget.attendanceId!,
               method: _selectedMethod,
             ),
           );

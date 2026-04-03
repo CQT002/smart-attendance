@@ -1,7 +1,10 @@
 import { type ClassValue, clsx } from "clsx";
 import { twMerge } from "tailwind-merge";
 import { format, parseISO } from "date-fns";
+import { toZonedTime } from "date-fns-tz";
 import { vi } from "date-fns/locale";
+
+const TZ_HCM = "Asia/Ho_Chi_Minh";
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -10,7 +13,8 @@ export function cn(...inputs: ClassValue[]) {
 export function formatDate(dateStr: string | null | undefined, fmt = "dd/MM/yyyy"): string {
   if (!dateStr) return "—";
   try {
-    return format(parseISO(dateStr), fmt, { locale: vi });
+    const zonedDate = toZonedTime(parseISO(dateStr), TZ_HCM);
+    return format(zonedDate, fmt, { locale: vi });
   } catch {
     return "—";
   }

@@ -79,14 +79,14 @@ class AttendanceModel {
       userId: json['user_id'] as int? ?? 0,
       branchId: json['branch_id'] as int? ?? 0,
       shiftId: json['shift_id'] as int?,
-      date: DateTime.parse(json['date'] as String? ?? DateTime.now().toIso8601String()),
-      checkInTime: json['check_in_time'] != null ? DateTime.parse(json['check_in_time'] as String) : null,
+      date: DateTime.parse(json['date'] as String? ?? DateTime.now().toIso8601String()).toLocal(),
+      checkInTime: json['check_in_time'] != null ? DateTime.parse(json['check_in_time'] as String).toLocal() : null,
       checkInLat: (json['check_in_lat'] as num?)?.toDouble(),
       checkInLng: (json['check_in_lng'] as num?)?.toDouble(),
       checkInMethod: json['check_in_method'] as String?,
       checkInSsid: json['check_in_ssid'] as String? ?? '',
       checkInBssid: json['check_in_bssid'] as String? ?? '',
-      checkOutTime: json['check_out_time'] != null ? DateTime.parse(json['check_out_time'] as String) : null,
+      checkOutTime: json['check_out_time'] != null ? DateTime.parse(json['check_out_time'] as String).toLocal() : null,
       checkOutLat: (json['check_out_lat'] as num?)?.toDouble(),
       checkOutLng: (json['check_out_lng'] as num?)?.toDouble(),
       checkOutMethod: json['check_out_method'] as String?,
@@ -103,8 +103,8 @@ class AttendanceModel {
       workHours: (json['work_hours'] as num?)?.toDouble() ?? 0,
       overtime: (json['overtime'] as num?)?.toDouble() ?? 0,
       note: json['note'] as String? ?? '',
-      createdAt: DateTime.parse(json['created_at'] as String? ?? DateTime.now().toIso8601String()),
-      updatedAt: DateTime.parse(json['updated_at'] as String? ?? DateTime.now().toIso8601String()),
+      createdAt: DateTime.parse(json['created_at'] as String? ?? DateTime.now().toIso8601String()).toLocal(),
+      updatedAt: DateTime.parse(json['updated_at'] as String? ?? DateTime.now().toIso8601String()).toLocal(),
     );
   }
 
@@ -117,13 +117,12 @@ class AttendanceModel {
       case 'present':
         return 'Đúng giờ';
       case 'late':
-        return 'Trễ';
       case 'early_leave':
-        return 'Về sớm';
+      case 'late_early_leave':
+      case 'half_day':
+        return 'Đi trễ - Về sớm';
       case 'absent':
         return 'Vắng';
-      case 'half_day':
-        return 'Nửa ngày';
       default:
         return status;
     }

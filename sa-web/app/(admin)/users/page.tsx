@@ -32,7 +32,7 @@ import { ResetPasswordDialog } from "@/components/users/reset-password-dialog";
 import { formatDate } from "@/lib/utils";
 
 export default function UsersPage() {
-  const [filter, setFilter] = useState<UserFilter>({ page: 1, limit: 20 });
+  const [filter, setFilter] = useState<UserFilter>({ page: 1, limit: 10 });
   const [search, setSearch] = useState("");
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [resetUser, setResetUser] = useState<User | null>(null);
@@ -67,34 +67,16 @@ export default function UsersPage() {
             </Button>
           </div>
           <Select
-            value={filter.branch_id?.toString() ?? "all"}
-            onValueChange={(v) =>
-              setFilter((f) => ({ ...f, branch_id: v === "all" ? undefined : Number(v), page: 1 }))
-            }
-          >
-            <SelectTrigger className="w-44">
-              <SelectValue placeholder="Chi nhánh" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Tất cả chi nhánh</SelectItem>
-              {branches?.map((b) => (
-                <SelectItem key={b.id} value={b.id.toString()}>
-                  {b.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Select
             value={filter.role ?? "all"}
             onValueChange={(v) =>
               setFilter((f) => ({ ...f, role: v === "all" ? undefined : (v as any), page: 1 }))
             }
           >
             <SelectTrigger className="w-36">
-              <SelectValue placeholder="Vai trò" />
+              <SelectValue placeholder="Chức vụ" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">Tất cả</SelectItem>
+              <SelectItem value="all">Tất cả chức vụ</SelectItem>
               <SelectItem value="admin">Admin</SelectItem>
               <SelectItem value="manager">Quản lý</SelectItem>
               <SelectItem value="employee">Nhân viên</SelectItem>

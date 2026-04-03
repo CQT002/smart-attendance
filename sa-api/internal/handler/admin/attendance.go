@@ -2,7 +2,6 @@ package admin
 
 import (
 	"strconv"
-	"time"
 
 	"github.com/hdbank/smart-attendance/internal/domain/entity"
 	"github.com/hdbank/smart-attendance/internal/domain/repository"
@@ -62,13 +61,13 @@ func (h *AttendanceHandler) GetList(c echo.Context) error {
 		filter.Status = entity.AttendanceStatus(v)
 	}
 	if v := c.QueryParam("date_from"); v != "" {
-		t, err := time.Parse("2006-01-02", v)
+		t, err := utils.ParseDateHCM( v)
 		if err == nil {
 			filter.DateFrom = &t
 		}
 	}
 	if v := c.QueryParam("date_to"); v != "" {
-		t, err := time.Parse("2006-01-02", v)
+		t, err := utils.ParseDateHCM( v)
 		if err == nil {
 			filter.DateTo = &t
 		}
@@ -126,13 +125,13 @@ func (h *AttendanceHandler) GetSummary(c echo.Context) error {
 		return response.Error(c, apperrors.ErrValidation)
 	}
 
-	from, err := time.Parse("2006-01-02", c.QueryParam("date_from"))
+	from, err := utils.ParseDateHCM( c.QueryParam("date_from"))
 	if err != nil {
 		return response.Error(c, apperrors.NewValidationError(map[string]string{
 			"date_from": "date_from không hợp lệ (định dạng YYYY-MM-DD)",
 		}))
 	}
-	to, err := time.Parse("2006-01-02", c.QueryParam("date_to"))
+	to, err := utils.ParseDateHCM( c.QueryParam("date_to"))
 	if err != nil {
 		return response.Error(c, apperrors.NewValidationError(map[string]string{
 			"date_to": "date_to không hợp lệ (định dạng YYYY-MM-DD)",

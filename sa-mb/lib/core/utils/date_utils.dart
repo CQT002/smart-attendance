@@ -7,11 +7,22 @@ class AppDateUtils {
   static final DateFormat _monthYearFormat = DateFormat('MM/yyyy');
   static final DateFormat _dayNameFormat = DateFormat('EEEE', 'vi');
 
-  static String formatDate(DateTime date) => _dateFormat.format(date);
-  static String formatTime(DateTime date) => _timeFormat.format(date);
-  static String formatDateTime(DateTime date) => _dateTimeFormat.format(date);
-  static String formatMonthYear(DateTime date) => _monthYearFormat.format(date);
-  static String formatDayName(DateTime date) => _dayNameFormat.format(date);
+  /// Parse ISO8601 string từ API (có thể UTC) → DateTime local (HCM)
+  static DateTime parseFromApi(String dateStr) {
+    return DateTime.parse(dateStr).toLocal();
+  }
+
+  /// Parse ISO8601 string nullable
+  static DateTime? parseFromApiNullable(String? dateStr) {
+    if (dateStr == null || dateStr.isEmpty) return null;
+    return DateTime.parse(dateStr).toLocal();
+  }
+
+  static String formatDate(DateTime date) => _dateFormat.format(date.toLocal());
+  static String formatTime(DateTime date) => _timeFormat.format(date.toLocal());
+  static String formatDateTime(DateTime date) => _dateTimeFormat.format(date.toLocal());
+  static String formatMonthYear(DateTime date) => _monthYearFormat.format(date.toLocal());
+  static String formatDayName(DateTime date) => _dayNameFormat.format(date.toLocal());
 
   static DateTime startOfDay(DateTime date) {
     return DateTime(date.year, date.month, date.day);

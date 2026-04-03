@@ -57,15 +57,20 @@ class _SmartAttendanceAppState extends State<SmartAttendanceApp> {
         home: BlocBuilder<AuthBloc, AuthState>(
           builder: (context, state) {
             if (state is AuthAuthenticated) {
-              return BlocProvider(
-                create: (_) => AttendanceBloc(
-                  attendanceRepository: _attendanceRepository,
-                  locationService: _locationService,
-                  wifiService: _wifiService,
-                  deviceService: _deviceService,
-                  securityService: _securityService,
-                  user: state.user,
-                ),
+              return MultiBlocProvider(
+                providers: [
+                  RepositoryProvider.value(value: _attendanceRepository),
+                  BlocProvider(
+                    create: (_) => AttendanceBloc(
+                      attendanceRepository: _attendanceRepository,
+                      locationService: _locationService,
+                      wifiService: _wifiService,
+                      deviceService: _deviceService,
+                      securityService: _securityService,
+                      user: state.user,
+                    ),
+                  ),
+                ],
                 child: const HomeScreen(),
               );
             }

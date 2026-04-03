@@ -34,18 +34,20 @@ export function useTodayEmployees(filter: {
   });
 }
 
-export function useAttendanceReport(filter: ReportFilter = {}) {
+export function useAttendanceReport(filter: ReportFilter = {}, enabled = true) {
   return useQuery({
     queryKey: ["attendance-report", filter],
     queryFn: () => reportService.getAttendanceReport(filter),
     placeholderData: (prev) => prev,
+    enabled,
   });
 }
 
-export function useBranchReport(filter: ReportFilter = {}) {
+export function useBranchReport(filter: ReportFilter = {}, enabled = true) {
   return useQuery({
     queryKey: ["branch-report", filter],
     queryFn: () => reportService.getBranchReport(filter),
     placeholderData: (prev) => prev,
+    enabled,
   });
 }

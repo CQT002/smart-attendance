@@ -23,20 +23,22 @@ class AttendanceTodayLoaded extends AttendanceState {
 
 class AttendanceCheckInSuccess extends AttendanceState {
   final AttendanceModel attendance;
+  final DateTime timestamp;
 
-  const AttendanceCheckInSuccess(this.attendance);
+  AttendanceCheckInSuccess(this.attendance) : timestamp = DateTime.now();
 
   @override
-  List<Object?> get props => [attendance];
+  List<Object?> get props => [attendance, timestamp];
 }
 
 class AttendanceCheckOutSuccess extends AttendanceState {
   final AttendanceModel attendance;
+  final DateTime timestamp;
 
-  const AttendanceCheckOutSuccess(this.attendance);
+  AttendanceCheckOutSuccess(this.attendance) : timestamp = DateTime.now();
 
   @override
-  List<Object?> get props => [attendance];
+  List<Object?> get props => [attendance, timestamp];
 }
 
 class AttendanceHistoryLoaded extends AttendanceState {

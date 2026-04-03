@@ -47,14 +47,14 @@ class UserModel {
       department: json['department'] as String? ?? '',
       position: json['position'] as String? ?? '',
       avatarUrl: json['avatar_url'] as String? ?? '',
-      hiredAt: json['hired_at'] != null ? DateTime.parse(json['hired_at'] as String) : null,
-      lastLoginAt: json['last_login_at'] != null ? DateTime.parse(json['last_login_at'] as String) : null,
+      hiredAt: json['hired_at'] != null ? DateTime.parse(json['hired_at'] as String).toLocal() : null,
+      lastLoginAt: json['last_login_at'] != null ? DateTime.parse(json['last_login_at'] as String).toLocal() : null,
       branchId: json['branch_id'] as int?,
       branch: json['branch'] != null ? BranchModel.fromJson(json['branch'] as Map<String, dynamic>) : null,
       role: json['role'] as String? ?? 'employee',
       isActive: json['is_active'] as bool? ?? true,
-      createdAt: DateTime.parse(json['created_at'] as String? ?? DateTime.now().toIso8601String()),
-      updatedAt: DateTime.parse(json['updated_at'] as String? ?? DateTime.now().toIso8601String()),
+      createdAt: DateTime.parse(json['created_at'] as String? ?? DateTime.now().toIso8601String()).toLocal(),
+      updatedAt: DateTime.parse(json['updated_at'] as String? ?? DateTime.now().toIso8601String()).toLocal(),
     );
   }
 

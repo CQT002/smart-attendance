@@ -10,6 +10,7 @@ import (
 	"github.com/hdbank/smart-attendance/internal/domain/entity"
 	domainrepo "github.com/hdbank/smart-attendance/internal/domain/repository"
 	"github.com/hdbank/smart-attendance/pkg/apperrors"
+	"github.com/hdbank/smart-attendance/pkg/utils"
 	"gorm.io/gorm"
 )
 
@@ -117,24 +118,26 @@ func (r *attendanceRepository) FindAll(ctx context.Context, filter domainrepo.At
 // GetSummary tổng hợp thống kê chấm công dùng SQL aggregate - hiệu quả hơn load toàn bộ bản ghi
 func (r *attendanceRepository) GetSummary(ctx context.Context, userID uint, from, to time.Time) (*domainrepo.AttendanceSummary, error) {
 	type Result struct {
-		TotalDays     int
-		PresentDays   int
-		AbsentDays    int
-		LateDays      int
-		EarlyLeave    int
-		TotalHours    float64
-		TotalOvertime float64
+		TotalDays       int
+		PresentCount    int
+		LateCount       int
+		EarlyLeaveCount int
+		HalfDayCount    int
+		AbsentCount     int
+		TotalWorkHours  float64
+		TotalOvertime   float64
 	}
 
 	var result Result
 	err := r.db.WithContext(ctx).Raw(`
 		SELECT
 			COUNT(*) as total_days,
-			COUNT(CASE WHEN status = 'present' THEN 1 END) as present_days,
-			COUNT(CASE WHEN status = 'absent' THEN 1 END) as absent_days,
-			COUNT(CASE WHEN status = 'late' THEN 1 END) as late_days,
-			COUNT(CASE WHEN status = 'early_leave' THEN 1 END) as early_leave,
-			COALESCE(SUM(work_hours), 0) as total_hours,
+			COUNT(CASE WHEN status = 'present' THEN 1 END) as present_count,
+			COUNT(CASE WHEN status IN ('late', 'late_early_leave') THEN 1 END) as late_count,
+			COUNT(CASE WHEN status IN ('early_leave') THEN 1 END) as early_leave_count,
+			COUNT(CASE WHEN status = 'half_day' THEN 1 END) as half_day_count,
+			COUNT(CASE WHEN status = 'absent' THEN 1 END) as absent_count,
+			COALESCE(SUM(work_hours), 0) as total_work_hours,
 			COALESCE(SUM(overtime), 0) as total_overtime
 		FROM attendance_logs
 		WHERE user_id = ? AND date BETWEEN ? AND ?
@@ -144,14 +147,27 @@ func (r *attendanceRepository) GetSummary(ctx context.Context, userID uint, from
 		return nil, apperrors.Wrap(err, 500, "DB_ERROR", "Lỗi tổng hợp chấm công")
 	}
 
+	attendanceRate := float64(0)
+	onTimeRate := float64(0)
+	if result.TotalDays > 0 {
+		attendanceRate = float64(result.PresentCount+result.LateCount) / float64(result.TotalDays) * 100
+		total := result.PresentCount + result.LateCount
+		if total > 0 {
+			onTimeRate = float64(result.PresentCount) / float64(total) * 100
+		}
+	}
+
 	return &domainrepo.AttendanceSummary{
-		TotalDays:     result.TotalDays,
-		PresentDays:   result.PresentDays,
-		AbsentDays:    result.AbsentDays,
-		LateDays:      result.LateDays,
-		EarlyLeave:    result.EarlyLeave,
-		TotalHours:    result.TotalHours,
-		TotalOvertime: result.TotalOvertime,
+		TotalDays:       result.TotalDays,
+		PresentCount:    result.PresentCount,
+		LateCount:       result.LateCount,
+		EarlyLeaveCount: result.EarlyLeaveCount,
+		HalfDayCount:    result.HalfDayCount,
+		AbsentCount:     result.AbsentCount,
+		TotalWorkHours:  result.TotalWorkHours,
+		TotalOvertime:   result.TotalOvertime,
+		AttendanceRate:  attendanceRate,
+		OnTimeRate:      onTimeRate,
 	}, nil
 }
 
@@ -166,16 +182,30 @@ func (r *attendanceRepository) GetBranchSummary(ctx context.Context, branchID ui
 			u.employee_code,
 			u.department,
 			COUNT(a.id) as total_days,
-			COUNT(CASE WHEN a.status = 'present' THEN 1 END) as present_days,
-			COUNT(CASE WHEN a.status = 'absent' THEN 1 END) as absent_days,
-			COUNT(CASE WHEN a.status = 'late' THEN 1 END) as late_days,
-			COUNT(CASE WHEN a.status = 'early_leave' THEN 1 END) as early_leave,
-			COALESCE(SUM(a.work_hours), 0) as total_hours,
-			COALESCE(SUM(a.overtime), 0) as total_overtime
+			COUNT(CASE WHEN a.status = 'present' THEN 1 END) as present_count,
+			COUNT(CASE WHEN a.status IN ('late', 'late_early_leave') THEN 1 END) as late_count,
+			COUNT(CASE WHEN a.status IN ('early_leave') THEN 1 END) as early_leave_count,
+			COUNT(CASE WHEN a.status = 'half_day' THEN 1 END) as half_day_count,
+			COUNT(CASE WHEN a.status = 'absent' THEN 1 END) as absent_count,
+			COALESCE(SUM(a.work_hours), 0) as total_work_hours,
+			COALESCE(SUM(a.overtime), 0) as total_overtime,
+			CASE WHEN COUNT(a.id) > 0
+				THEN ROUND(
+					(COUNT(CASE WHEN a.status IN ('present','late','early_leave','late_early_leave','half_day') THEN 1 END)::numeric / COUNT(a.id)) * 100, 2
+				)
+				ELSE 0
+			END as attendance_rate,
+			CASE WHEN COUNT(CASE WHEN a.status IN ('present','late','early_leave','late_early_leave','half_day') THEN 1 END) > 0
+				THEN ROUND(
+					(COUNT(CASE WHEN a.status = 'present' THEN 1 END)::numeric
+					/ COUNT(CASE WHEN a.status IN ('present','late','early_leave','late_early_leave','half_day') THEN 1 END)) * 100, 2
+				)
+				ELSE 0
+			END as on_time_rate
 		FROM users u
 		LEFT JOIN attendance_logs a ON a.user_id = u.id
 			AND a.date BETWEEN ? AND ?
-		WHERE u.branch_id = ? AND u.is_active = true
+		WHERE u.branch_id = ? AND u.is_active = true AND u.role = 'employee'
 		GROUP BY u.id, u.name, u.employee_code, u.department
 		ORDER BY u.name
 	`, from.Format("2006-01-02"), to.Format("2006-01-02"), branchID).
@@ -189,7 +219,7 @@ func (r *attendanceRepository) GetBranchSummary(ctx context.Context, branchID ui
 }
 
 func (r *attendanceRepository) FindActiveCheckIn(ctx context.Context, userID uint) (*entity.AttendanceLog, error) {
-	today := time.Now().Format("2006-01-02")
+	today := utils.Now().Format("2006-01-02")
 	var log entity.AttendanceLog
 	err := r.db.WithContext(ctx).
 		Where("user_id = ? AND DATE(date) = ? AND check_in_time IS NOT NULL AND check_out_time IS NULL", userID, today).
@@ -217,10 +247,18 @@ func (r *attendanceRepository) CountSuspicious(ctx context.Context, userID uint,
 //
 // Dùng CTE để tính toán song song employee_counts và today_attendance,
 // tránh N+1 query khi có 100 chi nhánh × 5000 nhân viên.
-func (r *attendanceRepository) GetTodayStatsByBranch(ctx context.Context, branchID *uint, page, limit int) ([]*domainrepo.BranchTodayStats, int64, error) {
+func (r *attendanceRepository) GetTodayStatsByBranch(ctx context.Context, branchID *uint, search string, page, limit int) ([]*domainrepo.BranchTodayStats, int64, error) {
 	branchFilter := ""
+	var args []interface{}
+
 	if branchID != nil {
-		branchFilter = "AND b.id = ?"
+		branchFilter += " AND b.id = ?"
+		args = append(args, *branchID)
+	}
+
+	if search != "" {
+		branchFilter += " AND (b.name ILIKE ? OR b.code ILIKE ?)"
+		args = append(args, "%"+search+"%", "%"+search+"%")
 	}
 
 	// ── Count tổng số chi nhánh thoả filter (để phân trang) ──
@@ -229,10 +267,7 @@ func (r *attendanceRepository) GetTodayStatsByBranch(ctx context.Context, branch
 		branchFilter,
 	)
 	var total int64
-	countQuery := r.db.WithContext(ctx).Raw(countSQL)
-	if branchID != nil {
-		countQuery = r.db.WithContext(ctx).Raw(countSQL, *branchID)
-	}
+	countQuery := r.db.WithContext(ctx).Raw(countSQL, args...)
 	if err := countQuery.Scan(&total).Error; err != nil {
 		return nil, 0, apperrors.Wrap(err, 500, "DB_ERROR", "Lỗi đếm chi nhánh")
 	}
@@ -259,8 +294,8 @@ func (r *attendanceRepository) GetTodayStatsByBranch(ctx context.Context, branch
 			SELECT
 				a.branch_id,
 				COUNT(CASE WHEN a.status = 'present'     THEN 1 END) AS present_count,
-				COUNT(CASE WHEN a.status = 'late'        THEN 1 END) AS late_count,
-				COUNT(CASE WHEN a.status = 'early_leave' THEN 1 END) AS early_leave_count,
+				COUNT(CASE WHEN a.status IN ('late', 'late_early_leave') THEN 1 END) AS late_count,
+				COUNT(CASE WHEN a.status IN ('early_leave') THEN 1 END) AS early_leave_count,
 				COUNT(CASE WHEN a.status = 'half_day'    THEN 1 END) AS half_day_count,
 				COUNT(CASE WHEN a.is_fake_gps = true OR a.is_vpn = true THEN 1 END) AS suspicious_count
 			FROM attendance_logs a
@@ -298,15 +333,9 @@ func (r *attendanceRepository) GetTodayStatsByBranch(ctx context.Context, branch
 		LIMIT ? OFFSET ?
 	`, branchFilter)
 
-	var dataQuery *gorm.DB
-	if branchID != nil {
-		dataQuery = r.db.WithContext(ctx).Raw(dataSQL, *branchID, limit, offset)
-	} else {
-		dataQuery = r.db.WithContext(ctx).Raw(dataSQL, limit, offset)
-	}
-
+	dataArgs := append(args, limit, offset)
 	var results []*domainrepo.BranchTodayStats
-	if err := dataQuery.Scan(&results).Error; err != nil {
+	if err := r.db.WithContext(ctx).Raw(dataSQL, dataArgs...).Scan(&results).Error; err != nil {
 		return nil, 0, apperrors.Wrap(err, 500, "DB_ERROR", "Lỗi thống kê chấm công hôm nay")
 	}
 

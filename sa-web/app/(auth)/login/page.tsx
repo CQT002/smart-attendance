@@ -54,7 +54,7 @@ export default function LoginPage() {
             HD
           </div>
           <h1 className="text-2xl font-bold">Smart Attendance</h1>
-          <p className="text-muted-foreground text-sm mt-1">HDBBank Admin Portal</p>
+          <p className="text-muted-foreground text-sm mt-1">HDBank Admin Portal</p>
         </div>
 
         <Card>

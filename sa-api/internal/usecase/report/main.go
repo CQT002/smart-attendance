@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/hdbank/smart-attendance/internal/domain/entity"
 	"github.com/hdbank/smart-attendance/internal/domain/repository"
 	"github.com/hdbank/smart-attendance/internal/domain/usecase"
 	"github.com/hdbank/smart-attendance/internal/infrastructure/cache"
+	"github.com/hdbank/smart-attendance/pkg/utils"
 )
 
 type reportUsecase struct {
@@ -36,8 +36,8 @@ func NewReportUsecase(
 // GetTodayBranchStats thống kê chấm công hôm nay theo từng chi nhánh.
 // Cache 2 phút — đủ ngắn để dashboard phản ánh gần realtime.
 func (u *reportUsecase) GetTodayBranchStats(ctx context.Context, filter usecase.TodayStatsFilter) ([]*repository.BranchTodayStats, int64, error) {
-	cacheKey := fmt.Sprintf("dashboard:today:branch:%v:p%d:l%d",
-		filter.BranchID, filter.Page, filter.Limit)
+	cacheKey := fmt.Sprintf("dashboard:today:branch:%v:q:%s:p%d:l%d",
+		filter.BranchID, filter.Search, filter.Page, filter.Limit)
 
 	type cachedPage struct {
 		Items []*repository.BranchTodayStats `json:"items"`
@@ -48,7 +48,7 @@ func (u *reportUsecase) GetTodayBranchStats(ctx context.Context, filter usecase.
 		return cached.Items, cached.Total, nil
 	}
 
-	items, total, err := u.attendanceRepo.GetTodayStatsByBranch(ctx, filter.BranchID, filter.Page, filter.Limit)
+	items, total, err := u.attendanceRepo.GetTodayStatsByBranch(ctx, filter.BranchID, filter.Search, filter.Page, filter.Limit)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -116,76 +116,44 @@ func (u *reportUsecase) GetBranchDashboard(ctx context.Context, branchID uint) (
 	return stats, nil
 }
 
-// computeDashboardStats tính toán dashboard stats bằng các raw query tối ưu
+// computeDashboardStats tính toán dashboard stats từ GetTodayStatsByBranch (đã filter employee)
 func (u *reportUsecase) computeDashboardStats(ctx context.Context, branchID *uint) (*usecase.DashboardStats, error) {
-	today := time.Now()
-	todayStart := time.Date(today.Year(), today.Month(), today.Day(), 0, 0, 0, 0, today.Location())
-
-	// Đếm tổng nhân viên (chỉ role employee — admin/manager không chấm công)
-	isActive := true
-	userFilter := repository.UserFilter{BranchID: branchID, Role: entity.RoleEmployee, IsActive: &isActive, Page: 1, Limit: 1}
-	_, totalEmployees, err := u.userRepo.FindAll(ctx, userFilter)
+	// Lấy thống kê hôm nay per branch — SQL đã JOIN users WHERE role='employee'
+	summaries, _, err := u.attendanceRepo.GetTodayStatsByBranch(ctx, branchID, "", 1, 1000)
 	if err != nil {
 		return nil, err
 	}
 
-	// Tổng hợp chấm công hôm nay
-	attendFilter := repository.AttendanceFilter{
-		BranchID: branchID,
-		DateFrom: &todayStart,
-		DateTo:   &today,
-		Page:     1,
-		Limit:    1,
-	}
-	_, totalLogs, err := u.attendanceRepo.FindAll(ctx, attendFilter)
-	if err != nil {
-		return nil, err
+	var totalEmployees, totalPresent, presentCount, lateEarlyCount int64
+	for _, s := range summaries {
+		totalEmployees += int64(s.TotalEmployees)
+		totalPresent += int64(s.PresentCount + s.LateCount + s.EarlyLeaveCount + s.HalfDayCount)
+		presentCount += int64(s.PresentCount)
+		lateEarlyCount += int64(s.LateCount + s.EarlyLeaveCount + s.HalfDayCount) // Gom Đi trễ + Về sớm
 	}
 
-	presentFilter := repository.AttendanceFilter{
-		BranchID: branchID,
-		DateFrom: &todayStart,
-		DateTo:   &today,
-		Status:   "present",
-		Page:     1, Limit: 1,
-	}
-	_, present, _ := u.attendanceRepo.FindAll(ctx, presentFilter)
+	totalBranches := int64(len(summaries))
 
-	lateFilter := repository.AttendanceFilter{
-		BranchID: branchID,
-		DateFrom: &todayStart,
-		DateTo:   &today,
-		Status:   "late",
-		Page:     1, Limit: 1,
-	}
-	_, late, _ := u.attendanceRepo.FindAll(ctx, lateFilter)
-
-	totalBranches := int64(1)
-	if branchID == nil {
-		activeBranches, _ := u.branchRepo.FindActive(ctx)
-		totalBranches = int64(len(activeBranches))
-	}
-
-	absentToday := totalEmployees - totalLogs
-	if absentToday < 0 {
-		absentToday = 0
+	absent := totalEmployees - totalPresent
+	if absent < 0 {
+		absent = 0
 	}
 
 	attendanceRate := float64(0)
 	onTimeRate := float64(0)
 	if totalEmployees > 0 {
-		attendanceRate = float64(totalLogs) / float64(totalEmployees) * 100
-		if totalLogs > 0 {
-			onTimeRate = float64(present) / float64(totalLogs) * 100
+		attendanceRate = float64(totalPresent) / float64(totalEmployees) * 100
+		if totalPresent > 0 {
+			onTimeRate = float64(presentCount) / float64(totalPresent) * 100
 		}
 	}
 
 	return &usecase.DashboardStats{
 		TotalBranches:  totalBranches,
 		TotalEmployees: totalEmployees,
-		PresentToday:   present,
-		AbsentToday:    absentToday,
-		LateToday:      late,
+		PresentToday:   totalPresent,
+		AbsentToday:    absent,
+		LateToday:      lateEarlyCount,
 		AttendanceRate: roundToTwoDecimal(attendanceRate),
 		OnTimeRate:     roundToTwoDecimal(onTimeRate),
 	}, nil
@@ -227,6 +195,11 @@ func (u *reportUsecase) GetBranchReport(ctx context.Context, filter usecase.Repo
 
 	var reports []*usecase.BranchAttendanceReport
 	for _, branch := range branches {
+		// Nếu filter theo chi nhánh cụ thể (manager), bỏ qua các chi nhánh khác
+		if filter.BranchID != nil && branch.ID != *filter.BranchID {
+			continue
+		}
+
 		summaries, err := u.attendanceRepo.GetBranchSummary(ctx, branch.ID, from, to)
 		if err != nil {
 			continue
@@ -241,11 +214,22 @@ func (u *reportUsecase) GetBranchReport(ctx context.Context, filter usecase.Repo
 		// Tổng hợp từ tất cả nhân viên
 		for _, s := range summaries {
 			report.TotalDays += s.TotalDays
-			report.PresentDays += s.PresentDays
-			report.AbsentDays += s.AbsentDays
-			report.LateDays += s.LateDays
-			report.TotalHours += s.TotalHours
+			report.PresentCount += s.PresentCount
+			report.LateCount += s.LateCount
+			report.EarlyLeaveCount += s.EarlyLeaveCount
+			report.HalfDayCount += s.HalfDayCount
+			report.AbsentCount += s.AbsentCount
+			report.TotalWorkHours += s.TotalWorkHours
 			report.TotalOvertime += s.TotalOvertime
+		}
+
+		// Tính tỷ lệ
+		if report.TotalDays > 0 {
+			total := report.PresentCount + report.LateCount
+			report.AttendanceRate = roundToTwoDecimal(float64(total) / float64(report.TotalDays) * 100)
+			if total > 0 {
+				report.OnTimeRate = roundToTwoDecimal(float64(report.PresentCount) / float64(total) * 100)
+			}
 		}
 
 		if filter.UserID == nil {
@@ -280,10 +264,10 @@ func (u *reportUsecase) GetUserReport(ctx context.Context, userID uint, from, to
 
 // resolveDateRange tính toán khoảng thời gian dựa trên ReportPeriod
 func (u *reportUsecase) resolveDateRange(filter usecase.ReportFilter) (time.Time, time.Time) {
-	now := time.Now()
+	now := utils.Now()
 	switch filter.Period {
 	case usecase.PeriodDaily:
-		today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+		today := utils.StartOfDay(now)
 		return today, today
 	case usecase.PeriodWeekly:
 		weekday := int(now.Weekday())
@@ -291,13 +275,12 @@ func (u *reportUsecase) resolveDateRange(filter usecase.ReportFilter) (time.Time
 			weekday = 7
 		}
 		monday := now.AddDate(0, 0, -(weekday - 1))
-		from := time.Date(monday.Year(), monday.Month(), monday.Day(), 0, 0, 0, 0, now.Location())
+		from := utils.StartOfDay(monday)
 		return from, now
 	case usecase.PeriodMonthly:
-		from := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
+		from := utils.DateInHCM(now.Year(), now.Month(), 1, 0, 0, 0)
 		return from, now
 	default:
-		// PeriodCustom - sử dụng DateFrom/DateTo từ filter
 		return filter.DateFrom, filter.DateTo
 	}
 }

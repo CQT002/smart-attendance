@@ -21,13 +21,16 @@ type AttendanceFilter struct {
 
 // AttendanceSummary tổng hợp thống kê chấm công
 type AttendanceSummary struct {
-	TotalDays    int     `json:"total_days"`
-	PresentDays  int     `json:"present_days"`
-	AbsentDays   int     `json:"absent_days"`
-	LateDays     int     `json:"late_days"`
-	EarlyLeave   int     `json:"early_leave"`
-	TotalHours   float64 `json:"total_hours"`
-	TotalOvertime float64 `json:"total_overtime"`
+	TotalDays      int     `json:"total_days"`
+	PresentCount   int     `json:"present_count"`
+	LateCount      int     `json:"late_count"`
+	EarlyLeaveCount int    `json:"early_leave_count"`
+	HalfDayCount   int     `json:"half_day_count"`
+	AbsentCount    int     `json:"absent_count"`
+	TotalWorkHours float64 `json:"total_work_hours"`
+	TotalOvertime  float64 `json:"total_overtime"`
+	AttendanceRate float64 `json:"attendance_rate"`
+	OnTimeRate     float64 `json:"on_time_rate"`
 }
 
 // AttendanceRepository định nghĩa contract cho thao tác dữ liệu chấm công
@@ -62,7 +65,7 @@ type AttendanceRepository interface {
 	// GetTodayStatsByBranch lấy thống kê chấm công hôm nay theo từng chi nhánh, có phân trang
 	// branchID = nil → tất cả chi nhánh active (dành cho admin tổng)
 	// branchID != nil → chỉ chi nhánh đó (dành cho manager hoặc admin lọc)
-	GetTodayStatsByBranch(ctx context.Context, branchID *uint, page, limit int) ([]*BranchTodayStats, int64, error)
+	GetTodayStatsByBranch(ctx context.Context, branchID *uint, search string, page, limit int) ([]*BranchTodayStats, int64, error)
 
 	// GetTodayEmployeeDetails lấy danh sách chi tiết nhân viên với trạng thái chấm công hôm nay.
 	// Trả về cả nhân viên "absent" (chưa chấm công) — khác với FindAll chỉ trả về attendance_logs có sẵn.

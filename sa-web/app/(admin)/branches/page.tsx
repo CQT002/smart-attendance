@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Header } from "@/components/layout/header";
 import { useBranches, useCreateBranch, useUpdateBranch, useDeleteBranch } from "@/hooks/use-branches";
+import { useCurrentUser } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
@@ -25,13 +26,17 @@ import { BranchDetailDialog } from "@/components/branches/branch-detail-dialog";
 import { formatDate } from "@/lib/utils";
 
 export default function BranchesPage() {
-  const [filter, setFilter] = useState<BranchFilter>({ page: 1, limit: 20 });
+  const { data: currentUser } = useCurrentUser();
+  const isAdmin = currentUser?.role === "admin";
+
+  const [filter, setFilter] = useState<BranchFilter>({ page: 1, limit: 10 });
   const [search, setSearch] = useState("");
   const [editingBranch, setEditingBranch] = useState<Branch | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [wifiBranch, setWifiBranch] = useState<Branch | null>(null);
   const [detailBranch, setDetailBranch] = useState<Branch | null>(null);
 
+  // Manager: backend tự filter theo chi nhánh qua JWT
   const { data, isLoading } = useBranches(filter);
   const createBranch = useCreateBranch();
   const updateBranch = useUpdateBranch();
@@ -59,10 +64,12 @@ export default function BranchesPage() {
               <Search className="h-4 w-4" />
             </Button>
           </div>
-          <Button onClick={() => setShowCreate(true)}>
-            <Plus className="h-4 w-4" />
-            Thêm chi nhánh
-          </Button>
+          {isAdmin && (
+            <Button onClick={() => setShowCreate(true)}>
+              <Plus className="h-4 w-4" />
+              Thêm chi nhánh
+            </Button>
+          )}
         </div>
 
         {/* Table */}
@@ -148,26 +155,30 @@ export default function BranchesPage() {
                             >
                               <Eye className="h-4 w-4" />
                             </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => setEditingBranch(branch)}
-                              title="Chỉnh sửa"
-                            >
-                              <Pencil className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="text-destructive hover:text-destructive"
-                              onClick={() => {
-                                if (confirm(`Vô hiệu hoá chi nhánh "${branch.name}"?`)) {
-                                  deleteBranch.mutate(branch.id);
-                                }
-                              }}
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
+                            {isAdmin && (
+                              <>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={() => setEditingBranch(branch)}
+                                  title="Chỉnh sửa"
+                                >
+                                  <Pencil className="h-4 w-4" />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="text-destructive hover:text-destructive"
+                                  onClick={() => {
+                                    if (confirm(`Vô hiệu hoá chi nhánh "${branch.name}"?`)) {
+                                      deleteBranch.mutate(branch.id);
+                                    }
+                                  }}
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </>
+                            )}
                           </div>
                         </TableCell>
                       </TableRow>

@@ -73,8 +73,8 @@ export function BranchDetailDialog({ branch, open, onClose }: BranchDetailDialog
               <span className="text-green-600">📍</span> Toạ độ (GPS)
             </h4>
             {branch.latitude && branch.longitude ? (
-              <div className="text-sm space-y-1">
-                <div className="grid grid-cols-3 gap-2">
+              <div className="text-sm space-y-1 overflow-x-auto">
+                <div className="flex items-center justify-between gap-4 whitespace-nowrap">
                   <div>
                     <span className="text-muted-foreground">Vĩ độ: </span>
                     <span className="font-mono">{branch.latitude}</span>

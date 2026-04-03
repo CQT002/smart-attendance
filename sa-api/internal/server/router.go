@@ -127,7 +127,6 @@ func SetupRouter(e *echo.Echo, deps RouterDeps) {
 	reports.GET("/today/employees", deps.ReportHandler.GetTodayEmployees)
 	reports.GET("/dashboard", deps.ReportHandler.GetDashboard)
 	reports.GET("/attendance", deps.ReportHandler.GetAttendanceReport)
-	reports.GET("/branches", deps.ReportHandler.GetBranchReport,
-		middleware.RequireRole(entity.RoleAdmin))
+	reports.GET("/branches", deps.ReportHandler.GetBranchReport)
 	reports.GET("/users/:user_id", deps.ReportHandler.GetUserReport)
 }

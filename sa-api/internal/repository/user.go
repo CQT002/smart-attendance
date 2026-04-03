@@ -4,11 +4,11 @@ import (
 	"context"
 	"errors"
 	"log/slog"
-	"time"
 
 	"github.com/hdbank/smart-attendance/internal/domain/entity"
 	domainrepo "github.com/hdbank/smart-attendance/internal/domain/repository"
 	"github.com/hdbank/smart-attendance/pkg/apperrors"
+	"github.com/hdbank/smart-attendance/pkg/utils"
 	"gorm.io/gorm"
 )
 
@@ -82,7 +82,7 @@ func (r *userRepository) FindByEmail(ctx context.Context, email string) (*entity
 
 func (r *userRepository) FindByEmployeeCode(ctx context.Context, code string) (*entity.User, error) {
 	var user entity.User
-	err := r.db.WithContext(ctx).First(&user, "employee_code = ?", code).Error
+	err := r.db.WithContext(ctx).First(&user, "UPPER(employee_code) = UPPER(?)", code).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, apperrors.ErrUserNotFound
@@ -144,7 +144,7 @@ func (r *userRepository) FindByBranch(ctx context.Context, branchID uint) ([]*en
 }
 
 func (r *userRepository) UpdateLastLogin(ctx context.Context, userID uint) error {
-	now := time.Now()
+	now := utils.Now()
 	return r.db.WithContext(ctx).Model(&entity.User{}).
 		Where("id = ?", userID).
 		Update("last_login_at", now).Error

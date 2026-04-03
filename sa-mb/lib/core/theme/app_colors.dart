@@ -44,15 +44,14 @@ class AppColors {
   static Color statusColor(String status) {
     switch (status) {
       case 'present':
-        return statusPresent;
+        return statusPresent;       // Xanh lá
       case 'late':
-        return statusLate;
       case 'early_leave':
-        return statusEarlyLeave;
-      case 'absent':
-        return statusAbsent;
+      case 'late_early_leave':
       case 'half_day':
-        return statusHalfDay;
+        return statusLate;          // Cam — gom thành "Đi trễ - Về sớm"
+      case 'absent':
+        return statusAbsent;        // Đỏ
       default:
         return textSecondary;
     }

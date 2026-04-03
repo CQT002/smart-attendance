@@ -8,6 +8,7 @@ import (
 	"github.com/hdbank/smart-attendance/internal/domain/usecase"
 	"github.com/hdbank/smart-attendance/pkg/apperrors"
 	"github.com/hdbank/smart-attendance/pkg/response"
+	"github.com/hdbank/smart-attendance/pkg/utils"
 	"github.com/labstack/echo/v4"
 )
 
@@ -68,12 +69,6 @@ func (h *AttendanceHandler) CheckOut(c echo.Context) error {
 	req.UserID = getUserIDFromContext(c)
 	req.IPAddress = c.RealIP()
 
-	if req.AttendanceID == 0 {
-		return response.Error(c, apperrors.NewValidationError(map[string]string{
-			"attendance_id": "attendance_id không được để trống",
-		}))
-	}
-
 	result, err := h.attendanceUsecase.CheckOut(c.Request().Context(), req)
 	if err != nil {
 		return response.Error(c, err)
@@ -128,12 +123,12 @@ func (h *AttendanceHandler) GetMyHistory(c echo.Context) error {
 	}
 
 	if dateFrom := c.QueryParam("date_from"); dateFrom != "" {
-		if t, err := time.Parse("2006-01-02", dateFrom); err == nil {
+		if t, err := utils.ParseDateHCM( dateFrom); err == nil {
 			filter.DateFrom = &t
 		}
 	}
 	if dateTo := c.QueryParam("date_to"); dateTo != "" {
-		if t, err := time.Parse("2006-01-02", dateTo); err == nil {
+		if t, err := utils.ParseDateHCM( dateTo); err == nil {
 			endOfDay := t.Add(24*time.Hour - time.Second)
 			filter.DateTo = &endOfDay
 		}

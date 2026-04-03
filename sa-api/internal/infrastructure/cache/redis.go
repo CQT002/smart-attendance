@@ -121,3 +121,18 @@ func IsCacheMiss(err error) bool {
 func BuildKey(prefix, id string) string {
 	return prefix + id
 }
+
+// NoOpCache là cache không làm gì — dùng khi Redis không khả dụng
+type NoOpCache struct{}
+
+func NewNoOpCache() Cache {
+	return &NoOpCache{}
+}
+
+func (n *NoOpCache) Set(_ context.Context, _ string, _ any, _ time.Duration) error { return nil }
+func (n *NoOpCache) Get(_ context.Context, _ string, _ any) error                 { return ErrCacheMiss }
+func (n *NoOpCache) Delete(_ context.Context, _ string) error                      { return nil }
+func (n *NoOpCache) DeletePattern(_ context.Context, _ string) error               { return nil }
+func (n *NoOpCache) Exists(_ context.Context, _ string) (bool, error)              { return false, nil }
+func (n *NoOpCache) Incr(_ context.Context, _ string) (int64, error)               { return 0, nil }
+func (n *NoOpCache) Expire(_ context.Context, _ string, _ time.Duration) error     { return nil }

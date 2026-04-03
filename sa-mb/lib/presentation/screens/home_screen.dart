@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
+import '../../../domain/repositories/attendance_repository.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/utils/date_utils.dart';
@@ -11,7 +13,6 @@ import '../blocs/auth/auth_bloc.dart';
 import '../blocs/auth/auth_event.dart';
 import '../blocs/auth/auth_state.dart';
 import '../widgets/app_toast.dart';
-import '../widgets/status_badge.dart';
 import 'history_screen.dart';
 import 'check_in_screen.dart';
 
@@ -69,8 +70,57 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
-class _HomeTab extends StatelessWidget {
+class _HomeTab extends StatefulWidget {
   const _HomeTab();
+
+  @override
+  State<_HomeTab> createState() => _HomeTabState();
+}
+
+class _HomeTabState extends State<_HomeTab> {
+  Timer? _timer;
+  DateTime _currentTime = DateTime.now();
+  late Future<List<AttendanceModel>> _historyFuture;
+  AttendanceModel? _lastKnownToday;
+
+  @override
+  void initState() {
+    super.initState();
+    _startTimer();
+    _fetchHistory();
+    _fetchToday();
+  }
+
+  void _fetchToday() async {
+    final repo = context.read<AttendanceRepository>();
+    final today = await repo.getTodayAttendance();
+    if (mounted && today != null) {
+      setState(() => _lastKnownToday = today);
+    }
+  }
+
+  void _startTimer() {
+    _timer = Timer.periodic(const Duration(minutes: 1), (timer) {
+      if (mounted) {
+        setState(() {
+          _currentTime = DateTime.now();
+        });
+      }
+    });
+  }
+
+  void _fetchHistory() {
+    final repo = context.read<AttendanceRepository>();
+    final from = AppDateUtils.startOfWeek(DateTime.now());
+    final to = AppDateUtils.endOfDay(DateTime.now());
+    _historyFuture = repo.getHistory(from: from, to: to, limit: 100);
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -80,24 +130,21 @@ class _HomeTab extends StatelessWidget {
     return SafeArea(
       child: RefreshIndicator(
         onRefresh: () async {
-          context.read<AttendanceBloc>().add(AttendanceLoadToday());
+          _fetchToday();
+          _fetchHistory();
+          setState(() {});
         },
         child: SingleChildScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.all(20),
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Greeting
               _buildGreeting(context, user),
               const SizedBox(height: 24),
-
-              // Today status card
-              _buildTodayCard(context),
-              const SizedBox(height: 20),
-
-              // Check-in/out buttons
-              _buildActionButtons(context),
+              _buildRealtimeCard(context),
+              const SizedBox(height: 24),
+              _buildWeeklyHistory(context),
             ],
           ),
         ),
@@ -107,273 +154,361 @@ class _HomeTab extends StatelessWidget {
 
   Widget _buildGreeting(BuildContext context, UserModel? user) {
     final theme = Theme.of(context);
-    final now = DateTime.now();
-    String greeting;
-    if (now.hour < 12) {
-      greeting = 'Chào buổi sáng';
-    } else if (now.hour < 18) {
-      greeting = 'Chào buổi chiều';
-    } else {
-      greeting = 'Chào buổi tối';
-    }
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    
+    return Row(
       children: [
-        Text(
-          greeting,
-          style: theme.textTheme.bodyLarge?.copyWith(
-            color: AppColors.textSecondary,
-          ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          user?.name ?? 'Nhân viên',
-          style: theme.textTheme.headlineSmall?.copyWith(
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        if (user?.branch != null)
-          Padding(
-            padding: const EdgeInsets.only(top: 4),
-            child: Row(
-              children: [
-                const Icon(Icons.business, size: 16, color: AppColors.textSecondary),
-                const SizedBox(width: 4),
-                Text(
-                  user!.branch!.name,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: AppColors.textSecondary,
-                  ),
-                ),
-              ],
+        CircleAvatar(
+          radius: 28,
+          backgroundColor: AppColors.primary.withOpacity(0.1),
+          // Fallback to initial
+          child: Text(
+            user?.name.isNotEmpty == true ? user!.name[0].toUpperCase() : '?',
+            style: theme.textTheme.headlineSmall?.copyWith(
+              color: AppColors.primary,
+              fontWeight: FontWeight.bold,
             ),
           ),
-        const SizedBox(height: 4),
-        Text(
-          AppDateUtils.formatDate(DateTime.now()),
-          style: theme.textTheme.bodyMedium?.copyWith(
-            color: AppColors.textSecondary,
+        ),
+        const SizedBox(width: 16),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                _getGreeting(),
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: AppColors.textSecondary,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                (user?.name ?? 'Nhân viên').toUpperCase(),
+                style: theme.textTheme.titleMedium?.copyWith(
+                  color: AppColors.primary,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                user?.branch?.name ?? 'Chi nhánh',
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: AppColors.textSecondary,
+                ),
+              ),
+            ],
           ),
+        ),
+        IconButton(
+          onPressed: () {},
+          icon: const Icon(Icons.notifications_outlined, size: 28),
         ),
       ],
     );
   }
 
-  Widget _buildTodayCard(BuildContext context) {
+  Widget _buildRealtimeCard(BuildContext context) {
     final theme = Theme.of(context);
 
-    return BlocBuilder<AttendanceBloc, AttendanceState>(
-      builder: (context, state) {
-        AttendanceModel? today;
-        if (state is AttendanceTodayLoaded) {
-          today = state.today;
-        } else if (state is AttendanceCheckInSuccess) {
-          today = state.attendance;
-        } else if (state is AttendanceCheckOutSuccess) {
-          today = state.attendance;
-        }
-
-        return Card(
-          child: Padding(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      'Hôm nay',
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    if (today != null)
-                      StatusBadge(
-                        status: today.status,
-                        label: today.statusDisplay,
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 20),
-                Row(
-                  children: [
-                    Expanded(
-                      child: _buildTimeBlock(
-                        context,
-                        icon: Icons.login_rounded,
-                        label: 'Check-in',
-                        time: today?.checkInTime != null
-                            ? AppDateUtils.formatTime(today!.checkInTime!)
-                            : '--:--',
-                        color: AppColors.success,
-                      ),
-                    ),
-                    Container(
-                      width: 1,
-                      height: 60,
-                      color: AppColors.divider,
-                    ),
-                    Expanded(
-                      child: _buildTimeBlock(
-                        context,
-                        icon: Icons.logout_rounded,
-                        label: 'Check-out',
-                        time: today?.checkOutTime != null
-                            ? AppDateUtils.formatTime(today!.checkOutTime!)
-                            : '--:--',
-                        color: AppColors.error,
-                      ),
-                    ),
-                    Container(
-                      width: 1,
-                      height: 60,
-                      color: AppColors.divider,
-                    ),
-                    Expanded(
-                      child: _buildTimeBlock(
-                        context,
-                        icon: Icons.access_time_rounded,
-                        label: 'Giờ làm',
-                        time: today != null
-                            ? AppDateUtils.formatWorkHours(today.workHours)
-                            : '0h',
-                        color: AppColors.info,
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildTimeBlock(
-    BuildContext context, {
-    required IconData icon,
-    required String label,
-    required String time,
-    required Color color,
-  }) {
-    return Column(
-      children: [
-        Icon(icon, color: color, size: 28),
-        const SizedBox(height: 8),
-        Text(
-          time,
-          style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.bold,
-              ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          label,
-          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: AppColors.textSecondary,
-              ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildActionButtons(BuildContext context) {
-    return BlocConsumer<AttendanceBloc, AttendanceState>(
+    // Dùng _lastKnownToday từ _fetchToday() + listener reload sau check-in/out
+    return BlocListener<AttendanceBloc, AttendanceState>(
       listener: (context, state) {
         if (state is AttendanceCheckInSuccess) {
-          AppToast.show(context,
-              message: 'Check-in thành công!', type: ToastType.success);
+          AppToast.show(context, message: 'Check-in thành công!', type: ToastType.success);
+          _fetchToday(); // Reload data mới nhất từ API
+          _fetchHistory();
         } else if (state is AttendanceCheckOutSuccess) {
-          AppToast.show(context,
-              message: 'Check-out thành công!', type: ToastType.success);
+          AppToast.show(context, message: 'Check-out thành công!', type: ToastType.success);
+          _fetchToday(); // Reload data mới nhất từ API
+          _fetchHistory();
         } else if (state is AttendanceFailure) {
           AppToast.show(context, message: state.message);
         }
       },
-      builder: (context, state) {
-        final isLoading = state is AttendanceLoading;
-        AttendanceModel? today;
-        if (state is AttendanceTodayLoaded) today = state.today;
-        if (state is AttendanceCheckInSuccess) today = state.attendance;
-        if (state is AttendanceCheckOutSuccess) today = state.attendance;
-
+      child: Builder(
+      builder: (context) {
+        final isLoading = context.watch<AttendanceBloc>().state is AttendanceLoading;
+        final today = _lastKnownToday;
         final hasCheckedIn = today?.hasCheckedIn ?? false;
         final hasCheckedOut = today?.hasCheckedOut ?? false;
 
-        if (hasCheckedIn && hasCheckedOut) {
-          return Card(
-            color: AppColors.success.withOpacity(0.1),
-            child: const Padding(
-              padding: EdgeInsets.all(20),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.check_circle, color: AppColors.success),
-                  SizedBox(width: 8),
-                  Text(
-                    'Bạn đã hoàn thành chấm công hôm nay',
-                    style: TextStyle(
-                      color: AppColors.success,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          );
+        final checkInStr = today?.checkInTime != null ? AppDateUtils.formatTime(today!.checkInTime!) : '--:--';
+        final checkOutStr = today?.checkOutTime != null ? AppDateUtils.formatTime(today!.checkOutTime!) : '--:--';
+
+        // Calculate hours worked
+        String workedStr = '0h 0p';
+        if (hasCheckedIn && today!.checkInTime != null) {
+          final endTime = today.checkOutTime ?? _currentTime;
+          final diff = endTime.difference(today.checkInTime!);
+          final h = diff.inHours;
+          final m = diff.inMinutes.remainder(60);
+          workedStr = '${h}h ${m}p';
         }
 
-        return Column(
-          children: [
-            if (!hasCheckedIn)
-              ElevatedButton.icon(
-                onPressed: isLoading
-                    ? null
-                    : () => _showMethodPicker(context, isCheckIn: true),
-                icon: isLoading
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: Colors.white,
-                        ),
-                      )
-                    : const Icon(Icons.login_rounded),
-                label: Text(isLoading ? 'Đang xử lý...' : 'Check-in'),
-              ),
-            if (hasCheckedIn && !hasCheckedOut) ...[
-              OutlinedButton.icon(
-                onPressed: isLoading
-                    ? null
-                    : () => _showMethodPicker(
-                          context,
-                          isCheckIn: false,
-                          attendanceId: today!.id,
-                        ),
-                icon: isLoading
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.logout_rounded),
-                label: Text(isLoading ? 'Đang xử lý...' : 'Check-out'),
+        return Container(
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.05),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
               ),
             ],
-          ],
+          ),
+          child: Column(
+            children: [
+              // Header of card
+              Container(
+                padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                decoration: const BoxDecoration(
+                  color: Color(0xFF005b8a), // Dark teal/blue matching image
+                  borderRadius: BorderRadius.only(
+                    topLeft: Radius.circular(16),
+                    topRight: Radius.circular(16),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.history, color: Colors.white.withOpacity(0.8), size: 18),
+                    const SizedBox(width: 8),
+                    Text(
+                      '${AppDateUtils.formatDayName(DateTime.now())}, ${AppDateUtils.formatDate(DateTime.now())} Hôm nay',
+                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 13),
+                    ),
+                  ],
+                ),
+              ),
+              
+              // Big Time display
+              Padding(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceAround,
+                      children: [
+                        Text(
+                          checkInStr,
+                          style: const TextStyle(
+                            fontSize: 32,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.orange,
+                          ),
+                        ),
+                        Text(
+                          checkOutStr,
+                          style: TextStyle(
+                            fontSize: 32,
+                            fontWeight: FontWeight.bold,
+                            color: hasCheckedOut ? AppColors.primary : AppColors.textSecondary,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 20),
+
+                    // Buttons — luôn enable, backend xử lý idempotent
+                    Row(
+                      children: [
+                        Expanded(
+                          child: ElevatedButton(
+                            onPressed: isLoading
+                                ? null
+                                : () => _showMethodPicker(context, isCheckIn: true),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.orange,
+                              disabledBackgroundColor: Colors.orange.withOpacity(0.5),
+                              foregroundColor: Colors.white,
+                              elevation: 0,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(30),
+                              ),
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                            ),
+                            child: isLoading
+                                ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                                : const Text(
+                                    'CHECK-IN',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: ElevatedButton(
+                            onPressed: isLoading
+                                ? null
+                                : () => _showMethodPicker(context, isCheckIn: false),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: AppColors.primary,
+                              disabledBackgroundColor: AppColors.divider.withOpacity(0.5),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(30),
+                              ),
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                            ),
+                            child: isLoading
+                                ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                                : const Text(
+                                    'CHECK-OUT',
+                                    style: TextStyle(fontWeight: FontWeight.bold),
+                                  ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 24),
+                    
+                    // Times row
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          checkInStr,
+                          style: const TextStyle(
+                            color: Colors.orange,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
+                          ),
+                        ),
+                        Text(
+                          workedStr,
+                          style: const TextStyle(
+                            color: AppColors.textSecondary,
+                            fontSize: 13,
+                          ),
+                        ),
+                        Text(
+                          hasCheckedOut ? checkOutStr : (hasCheckedIn ? AppDateUtils.formatTime(_currentTime) : '--:--'),
+                          style: const TextStyle(
+                            color: AppColors.primary,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         );
       },
+      ),
     );
+  }
+
+  Widget _buildWeeklyHistory(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+           mainAxisAlignment: MainAxisAlignment.spaceBetween,
+           children: [
+             Text(
+               'Tuần này (${AppDateUtils.formatDate(AppDateUtils.startOfWeek(DateTime.now()))} - ${AppDateUtils.formatDate(AppDateUtils.endOfWeek(DateTime.now()))})',
+               style: const TextStyle(color: AppColors.textSecondary, fontWeight: FontWeight.w600, fontSize: 13),
+             ),
+             const Icon(Icons.keyboard_arrow_up, color: AppColors.textSecondary),
+           ],
+        ),
+        const SizedBox(height: 16),
+        FutureBuilder<List<AttendanceModel>>(
+          future: _historyFuture,
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Center(child: Padding(padding: EdgeInsets.all(20), child: CircularProgressIndicator()));
+            }
+            if (snapshot.hasError) {
+              return const Center(child: Padding(padding: EdgeInsets.all(20), child: Text('Không thể tải lịch sử')));
+            }
+            
+            final list = snapshot.data ?? [];
+            if (list.isEmpty) {
+              return const Center(child: Padding(padding: EdgeInsets.all(20), child: Text('Chưa có lịch sử tuần này')));
+            }
+
+            // Exclude today from memory to not duplicate info, or just show it depending on preference. 
+            // The mockup shows today's date in the history too. Let's just group or list them.
+            return ListView.separated(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: list.length,
+              separatorBuilder: (_, __) => const Divider(height: 32),
+              itemBuilder: (context, index) {
+                final item = list[index];
+                final inStr = item.checkInTime != null ? AppDateUtils.formatTime(item.checkInTime!) : '--:--';
+                final outStr = item.checkOutTime != null ? AppDateUtils.formatTime(item.checkOutTime!) : '--:--';
+                
+                return Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '${AppDateUtils.formatDayName(item.date)}, ${AppDateUtils.formatDate(item.date)}',
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Cả ngày - ${AppDateUtils.formatWorkHours(item.workHours)}',
+                          style: const TextStyle(color: AppColors.textSecondary, fontSize: 12),
+                        ),
+                      ],
+                    ),
+                    Row(
+                      children: [
+                         Column(
+                           children: [
+                             Container(
+                               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                               decoration: BoxDecoration(color: Colors.orange, borderRadius: BorderRadius.circular(16)),
+                               child: const Text('VÀO', style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
+                             ),
+                             const SizedBox(height: 4),
+                             Text(inStr, style: const TextStyle(color: Colors.orange, fontWeight: FontWeight.bold, fontSize: 16)),
+                           ],
+                         ),
+                         const SizedBox(width: 24),
+                         Column(
+                           children: [
+                             Container(
+                               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                               decoration: BoxDecoration(color: AppColors.primary, borderRadius: BorderRadius.circular(16)),
+                               child: const Text('RA', style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
+                             ),
+                             const SizedBox(height: 4),
+                             Text(outStr, style: const TextStyle(color: AppColors.primary, fontWeight: FontWeight.bold, fontSize: 16)),
+                           ],
+                         ),
+                      ],
+                    ),
+                  ],
+                );
+              },
+            );
+          },
+        ),
+      ],
+    );
+  }
+
+  String _getGreeting() {
+    final hour = _currentTime.hour;
+    if (hour < 12) return 'Chào buổi sáng';
+    if (hour < 18) return 'Chào buổi chiều';
+    return 'Chào buổi tối';
   }
 
   void _showMethodPicker(
     BuildContext context, {
     required bool isCheckIn,
-    int? attendanceId,
   }) {
     Navigator.of(context).push(
       MaterialPageRoute(
@@ -381,7 +516,6 @@ class _HomeTab extends StatelessWidget {
           value: context.read<AttendanceBloc>(),
           child: CheckInScreen(
             isCheckIn: isCheckIn,
-            attendanceId: attendanceId,
           ),
         ),
       ),

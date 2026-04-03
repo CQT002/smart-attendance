@@ -80,7 +80,7 @@ func (r *branchRepository) FindByID(ctx context.Context, id uint) (*entity.Branc
 
 func (r *branchRepository) FindByCode(ctx context.Context, code string) (*entity.Branch, error) {
 	var branch entity.Branch
-	err := r.db.WithContext(ctx).First(&branch, "code = ?", code).Error
+	err := r.db.WithContext(ctx).First(&branch, "UPPER(code) = UPPER(?)", code).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, apperrors.ErrBranchNotFound
@@ -95,6 +95,9 @@ func (r *branchRepository) FindByCode(ctx context.Context, code string) (*entity
 func (r *branchRepository) FindAll(ctx context.Context, filter domainrepo.BranchFilter) ([]*entity.Branch, int64, error) {
 	query := r.db.WithContext(ctx).Model(&entity.Branch{})
 
+	if filter.BranchID != nil {
+		query = query.Where("id = ?", *filter.BranchID)
+	}
 	if filter.Search != "" {
 		query = query.Where("name ILIKE ? OR code ILIKE ?",
 			"%"+filter.Search+"%", "%"+filter.Search+"%")

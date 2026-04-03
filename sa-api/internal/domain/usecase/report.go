@@ -21,6 +21,7 @@ const (
 type TodayStatsFilter struct {
 	// BranchID = nil → admin xem toàn bộ; BranchID != nil → filter theo chi nhánh
 	BranchID *uint
+	Search   string // Tìm kiếm theo tên chi nhánh
 	Page     int
 	Limit    int
 }

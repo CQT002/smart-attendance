@@ -80,19 +80,20 @@ func (u *attendanceUsecase) CheckIn(ctx context.Context, req usecase.CheckInRequ
 	branchID := *user.BranchID
 	logger = logger.With("branch_id", branchID)
 
-	// === Bước 3: Kiểm tra đã check-in hôm nay chưa ===
-	today := time.Now()
+	// === Bước 3: Tìm record hôm nay ===
+	today := utils.Now()
 	existing, err := u.attendanceRepo.FindByUserAndDate(ctx, req.UserID, today)
 	if err != nil {
 		return nil, err
 	}
+
+	// Đã check-in rồi → trả về record hiện tại (giữ lần check-in đầu tiên)
 	if existing != nil && existing.IsCheckedIn() {
-		return nil, apperrors.ErrAlreadyCheckedIn
+		logger.Info("already checked in today, returning existing record", "attendance_id", existing.ID)
+		return existing, nil
 	}
 
 	// === Bước 4: Xác thực vị trí theo chi nhánh của user ===
-	// WiFi (SSID/BSSID) được ưu tiên vì chính xác hơn trong tòa nhà
-	// GPS Geofencing là fallback khi không có WiFi khớp
 	checkMethod, err := u.validateLocation(ctx, branchID, req.Latitude, req.Longitude, req.SSID, req.BSSID)
 	if err != nil {
 		logger.Warn("location validation failed",
@@ -108,9 +109,59 @@ func (u *attendanceUsecase) CheckIn(ctx context.Context, req usecase.CheckInRequ
 	if err != nil {
 		return nil, err
 	}
+	if shift == nil {
+		shift = &entity.Shift{
+			StartTime:   "08:00",
+			EndTime:     "17:00",
+			LateAfter:   15,
+			EarlyBefore: 15,
+			WorkHours:   8,
+		}
+	}
 
-	// === Bước 6: Tạo bản ghi chấm công ===
-	now := time.Now()
+	now := utils.Now()
+
+	// === Bước 6: Tạo hoặc cập nhật bản ghi ===
+	if existing != nil {
+		// Record đã tồn tại (checkout trước, chưa check-in) → cập nhật check-in vào record hiện tại
+		existing.CheckInTime = &now
+		existing.CheckInLat = &req.Latitude
+		existing.CheckInLng = &req.Longitude
+		existing.CheckInMethod = checkMethod
+		existing.CheckInSSID = req.SSID
+		existing.CheckInBSSID = req.BSSID
+		existing.DeviceID = req.DeviceID
+		existing.DeviceModel = req.DeviceModel
+		existing.IPAddress = req.IPAddress
+		existing.AppVersion = req.AppVersion
+		existing.IsFakeGPS = req.IsFakeGPS
+		existing.IsVPN = req.IsVPN
+		existing.Status = u.calculateCheckInStatus(now, shift)
+
+		if shift.ID != 0 {
+			existing.ShiftID = &shift.ID
+		}
+
+		// Tính lại work hours nếu đã có checkout
+		if existing.CheckOutTime != nil {
+			workHours := existing.CheckOutTime.Sub(now).Hours()
+			if workHours < 0 {
+				workHours = 0
+			}
+			existing.WorkHours = roundToTwoDecimal(workHours)
+		}
+
+		if err := u.attendanceRepo.Update(ctx, existing); err != nil {
+			return nil, err
+		}
+
+		cacheKey := u.todayCacheKey(req.UserID)
+		u.cache.Set(ctx, cacheKey, existing, todayCacheTTL)
+		logger.Info("check-in updated on existing record", "attendance_id", existing.ID)
+		return existing, nil
+	}
+
+	// Chưa có record → tạo mới
 	attendLog := &entity.AttendanceLog{
 		UserID:        req.UserID,
 		BranchID:      branchID,
@@ -127,15 +178,13 @@ func (u *attendanceUsecase) CheckIn(ctx context.Context, req usecase.CheckInRequ
 		AppVersion:    req.AppVersion,
 		IsFakeGPS:     req.IsFakeGPS,
 		IsVPN:         req.IsVPN,
-		Status:        entity.StatusPresent,
+		Status:        u.calculateCheckInStatus(now, shift),
 	}
 
-	if shift != nil {
+	if shift.ID != 0 {
 		attendLog.ShiftID = &shift.ID
-		attendLog.Status = u.calculateCheckInStatus(now, shift)
 	}
 
-	// Vẫn cho check-in nhưng đánh dấu để quản lý review
 	if req.IsFakeGPS || req.IsVPN {
 		note := ""
 		if req.IsFakeGPS {
@@ -160,75 +209,110 @@ func (u *attendanceUsecase) CheckIn(ctx context.Context, req usecase.CheckInRequ
 	return attendLog, nil
 }
 
-// CheckOut xử lý nghiệp vụ check-out và tính toán giờ làm
+// CheckOut xử lý nghiệp vụ check-out và tính toán giờ làm.
+// Cho phép check-out nhiều lần (luôn cập nhật lần cuối).
+// Cho phép check-out mà chưa check-in (tạo record mới nếu cần).
 func (u *attendanceUsecase) CheckOut(ctx context.Context, req usecase.CheckOutRequest) (*entity.AttendanceLog, error) {
-	logger := slog.With("user_id", req.UserID, "attendance_id", req.AttendanceID)
+	logger := slog.With("user_id", req.UserID)
 
-	// === Bước 1: Anti-fraud (check-out cũng cần kiểm tra) ===
+	// === Bước 1: Anti-fraud ===
 	if req.IsFakeGPS {
-		return nil, apperrors.ErrFakeGPSDetected
+		logger.Warn("fake GPS detected on check-out - allowing with flag")
 	}
 	if req.IsVPN {
-		return nil, apperrors.ErrVPNDetected
+		logger.Warn("VPN detected on check-out - allowing with flag")
 	}
-	// Server-side IP check
 	if err := u.checkIPBlocklist(ctx, req.IPAddress); err != nil {
 		logger.Warn("checkout blocked - ip in blocklist", "ip", req.IPAddress)
 		return nil, err
 	}
 
-	// === Bước 2: Tìm bản ghi check-in ===
-	attendLog, err := u.attendanceRepo.FindByID(ctx, req.AttendanceID)
+	// === Bước 2: Lấy branchID từ profile user ===
+	user, err := u.userRepo.FindByID(ctx, req.UserID)
 	if err != nil {
 		return nil, err
 	}
-	if attendLog.UserID != req.UserID {
-		return nil, apperrors.ErrForbidden
+	if user.BranchID == nil {
+		return nil, apperrors.New(403, "NO_BRANCH", "Tài khoản không được gắn chi nhánh để chấm công")
 	}
-	if !attendLog.IsCheckedIn() {
-		return nil, apperrors.ErrNotCheckedIn
-	}
-	if attendLog.IsCheckedOut() {
-		return nil, apperrors.ErrAlreadyCheckedOut
-	}
+	branchID := *user.BranchID
 
-	// === Bước 3: Xác thực vị trí check-out theo chi nhánh gốc của bản ghi ===
-	checkMethod, err := u.validateLocation(ctx, attendLog.BranchID, req.Latitude, req.Longitude, req.SSID, req.BSSID)
+	// === Bước 3: Xác thực vị trí ===
+	checkMethod, err := u.validateLocation(ctx, branchID, req.Latitude, req.Longitude, req.SSID, req.BSSID)
 	if err != nil {
 		return nil, err
 	}
 
-	// === Bước 4: Tính giờ làm + overtime + trạng thái ===
-	now := time.Now()
-	attendLog.CheckOutTime = &now
-	attendLog.CheckOutLat = &req.Latitude
-	attendLog.CheckOutLng = &req.Longitude
-	attendLog.CheckOutMethod = checkMethod
-	attendLog.CheckOutSSID = req.SSID
-	attendLog.CheckOutBSSID = req.BSSID
+	// === Bước 4: Tìm hoặc tạo record hôm nay ===
+	today := utils.Now()
+	attendLog, err := u.attendanceRepo.FindByUserAndDate(ctx, req.UserID, today)
+	if err != nil {
+		return nil, err
+	}
 
-	workHours := now.Sub(*attendLog.CheckInTime).Hours()
-	attendLog.WorkHours = roundToTwoDecimal(workHours)
+	now := utils.Now()
 
-	if attendLog.ShiftID != nil {
-		shift, err := u.shiftRepo.FindByID(ctx, *attendLog.ShiftID)
-		if err == nil && shift != nil {
-			attendLog.Overtime = u.calculateOvertime(workHours, shift)
-			attendLog.Status = u.calculateCheckOutStatus(attendLog.Status, now, shift)
+	if attendLog == nil {
+		// Chưa có record hôm nay (chưa check-in) → tạo record mới chỉ với check-out
+		shift, _ := u.shiftRepo.FindDefault(ctx, branchID)
+
+		attendLog = &entity.AttendanceLog{
+			UserID:         req.UserID,
+			BranchID:       branchID,
+			Date:           today,
+			CheckOutTime:   &now,
+			CheckOutLat:    &req.Latitude,
+			CheckOutLng:    &req.Longitude,
+			CheckOutMethod: checkMethod,
+			CheckOutSSID:   req.SSID,
+			CheckOutBSSID:  req.BSSID,
+			DeviceID:       req.DeviceID,
+			IPAddress:      req.IPAddress,
+			IsFakeGPS:      req.IsFakeGPS,
+			IsVPN:          req.IsVPN,
+			Status:         entity.StatusPresent,
+		}
+		if shift != nil {
+			attendLog.ShiftID = &shift.ID
+		}
+
+		if err := u.attendanceRepo.Create(ctx, attendLog); err != nil {
+			return nil, err
+		}
+	} else {
+		// Đã có record → cập nhật check-out (luôn lấy lần cuối)
+		attendLog.CheckOutTime = &now
+		attendLog.CheckOutLat = &req.Latitude
+		attendLog.CheckOutLng = &req.Longitude
+		attendLog.CheckOutMethod = checkMethod
+		attendLog.CheckOutSSID = req.SSID
+		attendLog.CheckOutBSSID = req.BSSID
+
+		if attendLog.CheckInTime != nil {
+			workHours := now.Sub(*attendLog.CheckInTime).Hours()
+			attendLog.WorkHours = roundToTwoDecimal(workHours)
+
+			if attendLog.ShiftID != nil {
+				shift, err := u.shiftRepo.FindByID(ctx, *attendLog.ShiftID)
+				if err == nil && shift != nil {
+					attendLog.Overtime = u.calculateOvertime(workHours, shift)
+					attendLog.Status = u.calculateCheckOutStatus(attendLog.Status, now, shift)
+				}
+			}
+		}
+
+		if err := u.attendanceRepo.Update(ctx, attendLog); err != nil {
+			return nil, err
 		}
 	}
 
-	if err := u.attendanceRepo.Update(ctx, attendLog); err != nil {
-		return nil, err
-	}
-
-	// === Bước 5: SET cache với bản ghi đã cập nhật ===
+	// === Bước 5: SET cache ===
 	cacheKey := u.todayCacheKey(req.UserID)
 	u.cache.Set(ctx, cacheKey, attendLog, todayCacheTTL)
 
 	logger.Info("check-out successful",
+		"attendance_id", attendLog.ID,
 		"work_hours", attendLog.WorkHours,
-		"overtime", attendLog.Overtime,
 		"method", checkMethod,
 	)
 	return attendLog, nil
@@ -252,7 +336,7 @@ func (u *attendanceUsecase) GetMyToday(ctx context.Context, userID uint) (*entit
 	}
 
 	// Cache miss — query DB và populate cache
-	log, err := u.attendanceRepo.FindByUserAndDate(ctx, userID, time.Now())
+	log, err := u.attendanceRepo.FindByUserAndDate(ctx, userID, utils.Now())
 	if err != nil {
 		return nil, err
 	}
@@ -275,11 +359,12 @@ func (u *attendanceUsecase) GetSummary(ctx context.Context, userID uint, from, t
 //  3. Server-side: IP có trong danh sách VPN/Proxy bị chặn
 //  4. Lịch sử vi phạm: đã bị flag >= 3 lần trong 7 ngày
 func (u *attendanceUsecase) antiFraudCheck(ctx context.Context, userID uint, isFakeGPS, isVPN bool, ip, deviceID string) error {
+	// Fake GPS và VPN: chỉ log warning, cho phép check-in nhưng đánh dấu để quản lý review
 	if isFakeGPS {
-		return apperrors.ErrFakeGPSDetected
+		slog.Warn("fake GPS detected - allowing check-in with flag", "user_id", userID)
 	}
 	if isVPN {
-		return apperrors.ErrVPNDetected
+		slog.Warn("VPN detected - allowing check-in with flag", "user_id", userID)
 	}
 
 	// Server-side IP verification — không phụ thuộc vào flag từ client
@@ -288,7 +373,7 @@ func (u *attendanceUsecase) antiFraudCheck(ctx context.Context, userID uint, isF
 	}
 
 	// Kiểm tra lịch sử vi phạm 7 ngày gần đây
-	sevenDaysAgo := time.Now().AddDate(0, 0, -7)
+	sevenDaysAgo := utils.Now().AddDate(0, 0, -7)
 	count, err := u.attendanceRepo.CountSuspicious(ctx, userID, sevenDaysAgo)
 	if err != nil {
 		slog.Error("failed to check suspicious count", "user_id", userID, "error", err)
@@ -367,10 +452,11 @@ func (u *attendanceUsecase) validateLocation(
 
 // calculateCheckInStatus tính trạng thái dựa vào giờ vào so với ca làm việc
 func (u *attendanceUsecase) calculateCheckInStatus(checkInTime time.Time, shift *entity.Shift) entity.AttendanceStatus {
+	checkInTime = checkInTime.In(utils.HCM)
 	startHour, startMin := parseTime(shift.StartTime)
 	shiftStart := time.Date(
 		checkInTime.Year(), checkInTime.Month(), checkInTime.Day(),
-		startHour, startMin, 0, 0, checkInTime.Location(),
+		startHour, startMin, 0, 0, utils.HCM,
 	)
 	if checkInTime.After(shiftStart.Add(time.Duration(shift.LateAfter) * time.Minute)) {
 		return entity.StatusLate
@@ -379,13 +465,19 @@ func (u *attendanceUsecase) calculateCheckInStatus(checkInTime time.Time, shift 
 }
 
 // calculateCheckOutStatus cập nhật trạng thái nếu về sớm hơn quy định
+// Kết hợp: late + early_leave → late_early_leave
 func (u *attendanceUsecase) calculateCheckOutStatus(current entity.AttendanceStatus, checkOutTime time.Time, shift *entity.Shift) entity.AttendanceStatus {
+	checkOutTime = checkOutTime.In(utils.HCM)
 	endHour, endMin := parseTime(shift.EndTime)
 	shiftEnd := time.Date(
 		checkOutTime.Year(), checkOutTime.Month(), checkOutTime.Day(),
-		endHour, endMin, 0, 0, checkOutTime.Location(),
+		endHour, endMin, 0, 0, utils.HCM,
 	)
-	if checkOutTime.Before(shiftEnd.Add(-time.Duration(shift.EarlyBefore) * time.Minute)) {
+	isEarlyLeave := checkOutTime.Before(shiftEnd.Add(-time.Duration(shift.EarlyBefore) * time.Minute))
+	if isEarlyLeave {
+		if current == entity.StatusLate {
+			return entity.StatusLateEarlyLeave // Đi trễ + Về sớm
+		}
 		return entity.StatusEarlyLeave
 	}
 	return current

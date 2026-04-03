@@ -45,6 +45,9 @@ export interface EmployeeTodayDetail {
 }
 
 export interface UserAttendanceSummary extends AttendanceSummary {
+  user_name: string;
+  employee_code: string;
+  department: string;
   date_from: string;
   date_to: string;
 }
@@ -79,6 +82,7 @@ export interface ReportFilter {
 
 export interface TodayStatsFilter {
   branch_id?: number;
+  search?: string;
   page?: number;
   limit?: number;
 }

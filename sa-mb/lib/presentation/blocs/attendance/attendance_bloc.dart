@@ -77,7 +77,7 @@ class AttendanceBloc extends Bloc<AttendanceEvent, AttendanceState> {
         latitude = position.latitude;
         longitude = position.longitude;
       } else {
-        // WiFi method
+        // WiFi method — chỉ dùng WiFi
         final wifiInfo = await _wifiService.getCurrentWifiInfo();
         if (wifiInfo == null) {
           emit(const AttendanceFailure('Không thể lấy thông tin WiFi. Vui lòng kết nối WiFi.'));
@@ -85,13 +85,6 @@ class AttendanceBloc extends Bloc<AttendanceEvent, AttendanceState> {
         }
         ssid = wifiInfo.ssid;
         bssid = wifiInfo.bssid;
-
-        // Also get GPS for WiFi check-in
-        final position = await _locationService.getCurrentPosition();
-        if (position != null) {
-          latitude = position.latitude;
-          longitude = position.longitude;
-        }
       }
 
       // 4. Call API
@@ -135,30 +128,24 @@ class AttendanceBloc extends Bloc<AttendanceEvent, AttendanceState> {
       if (event.method == 'gps') {
         final position = await _locationService.getCurrentPosition();
         if (position == null) {
-          emit(const AttendanceFailure('Không thể lấy vị trí GPS.'));
+          emit(const AttendanceFailure('Không thể lấy vị trí GPS. Vui lòng bật định vị.'));
           return;
         }
         latitude = position.latitude;
         longitude = position.longitude;
       } else {
+        // WiFi method — chỉ dùng WiFi
         final wifiInfo = await _wifiService.getCurrentWifiInfo();
         if (wifiInfo == null) {
-          emit(const AttendanceFailure('Không thể lấy thông tin WiFi.'));
+          emit(const AttendanceFailure('Không thể lấy thông tin WiFi. Vui lòng kết nối WiFi.'));
           return;
         }
         ssid = wifiInfo.ssid;
         bssid = wifiInfo.bssid;
-
-        final position = await _locationService.getCurrentPosition();
-        if (position != null) {
-          latitude = position.latitude;
-          longitude = position.longitude;
-        }
       }
 
-      // 4. Call API
+      // 4. Call API (không cần attendanceId, backend tự tìm record hôm nay)
       final attendance = await _attendanceRepository.checkOut(
-        attendanceId: event.attendanceId,
         latitude: latitude,
         longitude: longitude,
         ssid: ssid,

@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { Header } from "@/components/layout/header";
 import { useAttendanceLogs } from "@/hooks/use-attendance";
-import { useActiveBranches } from "@/hooks/use-branches";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
@@ -40,12 +39,11 @@ const STATUS_OPTIONS: { value: string; label: string }[] = [
 ];
 
 export default function AttendancePage() {
-  const [filter, setFilter] = useState<AttendanceFilter>({ page: 1, limit: 20 });
+  const [filter, setFilter] = useState<AttendanceFilter>({ page: 1, limit: 10 });
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
 
   const { data, isLoading } = useAttendanceLogs(filter);
-  const { data: branches } = useActiveBranches();
 
   const applyDateFilter = () => {
     setFilter((f) => ({
@@ -59,7 +57,7 @@ export default function AttendancePage() {
   const resetFilter = () => {
     setDateFrom("");
     setDateTo("");
-    setFilter({ page: 1, limit: 20 });
+    setFilter({ page: 1, limit: 10 });
   };
 
   return (
@@ -86,28 +84,18 @@ export default function AttendancePage() {
               className="w-40"
             />
           </div>
-          <Select
-            value={filter.branch_id?.toString() ?? "all"}
-            onValueChange={(v) =>
+          <Input
+            placeholder="Tìm kiếm chi nhánh..."
+            value={filter.search ?? ""}
+            onChange={(e) =>
               setFilter((f) => ({
                 ...f,
-                branch_id: v === "all" ? undefined : Number(v),
+                search: e.target.value || undefined,
                 page: 1,
               }))
             }
-          >
-            <SelectTrigger className="w-44">
-              <SelectValue placeholder="Chi nhánh" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Tất cả chi nhánh</SelectItem>
-              {branches?.map((b) => (
-                <SelectItem key={b.id} value={b.id.toString()}>
-                  {b.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+            className="w-44"
+          />
           <Select
             value={filter.status ?? "all"}
             onValueChange={(v) =>

@@ -2,18 +2,19 @@ import { Badge } from "@/components/ui/badge";
 import { AttendanceStatus } from "@/types/attendance";
 
 const STATUS_CONFIG: Record<
-  AttendanceStatus,
+  string,
   { label: string; variant: "success" | "warning" | "destructive" | "secondary" | "info" }
 > = {
   present: { label: "Đúng giờ", variant: "success" },
-  late: { label: "Đi trễ", variant: "warning" },
-  early_leave: { label: "Về sớm", variant: "info" },
+  late: { label: "Đi trễ - Về sớm", variant: "warning" },
+  early_leave: { label: "Đi trễ - Về sớm", variant: "warning" },
+  late_early_leave: { label: "Đi trễ - Về sớm", variant: "warning" },
+  half_day: { label: "Đi trễ - Về sớm", variant: "warning" },
   absent: { label: "Vắng mặt", variant: "destructive" },
-  half_day: { label: "Nửa ngày", variant: "secondary" },
 };
 
-export function StatusBadge({ status }: { status: AttendanceStatus }) {
-  const config = STATUS_CONFIG[status];
+export function StatusBadge({ status }: { status: string }) {
+  const config = STATUS_CONFIG[status] ?? { label: status, variant: "secondary" as const };
   return <Badge variant={config.variant}>{config.label}</Badge>;
 }
 

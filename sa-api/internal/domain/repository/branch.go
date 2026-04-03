@@ -8,6 +8,7 @@ import (
 
 // BranchFilter bộ lọc tìm kiếm chi nhánh
 type BranchFilter struct {
+	BranchID *uint
 	Search   string
 	IsActive *bool
 	Page     int

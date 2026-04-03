@@ -5,8 +5,8 @@ import { Header } from "@/components/layout/header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useDashboardStats, useTodayBranchStats } from "@/hooks/use-reports";
-import { useActiveBranches } from "@/hooks/use-branches";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useDebounce } from "@/hooks/use-debounce";
+import { Input } from "@/components/ui/input";
 import { formatPercent, formatHours } from "@/lib/utils";
 import {
   BarChart,
@@ -31,7 +31,12 @@ import {
 } from "lucide-react";
 import { Pagination } from "@/components/shared/pagination";
 
-const COLORS = ["#22c55e", "#f59e0b", "#ef4444", "#6366f1", "#8b5cf6"];
+// Màu cố định: Đúng giờ = xanh lá, Đi trễ - Về sớm = cam, Vắng mặt = đỏ
+const STATUS_COLORS: Record<string, string> = {
+  "Đúng giờ": "#22c55e",
+  "Đi trễ - Về sớm": "#f59e0b",
+  "Vắng mặt": "#ef4444",
+};
 
 function StatCard({
   title,
@@ -74,31 +79,49 @@ function StatCard({
 
 export default function DashboardPage() {
   const { data: stats, isLoading: statsLoading } = useDashboardStats();
-  const { data: branches } = useActiveBranches();
-  const [branchId, setBranchId] = useState<number | undefined>();
+  const [search, setSearch] = useState("");
+  const searchDebounced = useDebounce(search, 500);
   const [page, setPage] = useState(1);
 
+  const [chartSearch, setChartSearch] = useState("");
+  const chartSearchDebounced = useDebounce(chartSearch, 500);
+
+  const { data: chartStats, isLoading: chartLoading } = useTodayBranchStats({
+    search: chartSearchDebounced,
+    page: 1,
+    limit: 100,
+  });
+
   const { data: todayStats, isLoading: todayLoading } = useTodayBranchStats({
-    branch_id: branchId,
+    search: searchDebounced,
     page,
     limit: 10,
   });
 
+  // Gom: late + early_leave + late_early_leave + half_day → "Đi trễ - Về sớm"
+  // present_today = tổng có mặt, late_today = late (chưa gồm early_leave)
+  // Đúng giờ = present_today - late_today (present_today đã bao gồm late)
+  const lateEarlyTotal = (stats?.late_today ?? 0);
   const pieData = stats
     ? [
-        { name: "Đúng giờ", value: stats.present_today - stats.late_today },
-        { name: "Đi trễ", value: stats.late_today },
+        { name: "Đúng giờ", value: Math.max(0, stats.present_today - lateEarlyTotal) },
+        { name: "Đi trễ - Về sớm", value: lateEarlyTotal },
         { name: "Vắng mặt", value: stats.absent_today },
-      ]
+      ].filter((d) => d.value > 0)
     : [];
 
+  // Stacked bar: gom late + early_leave + half_day → "Đi trễ - Về sớm"
   const barData =
-    todayStats?.data.slice(0, 8).map((b) => ({
-      name: b.branch_code,
-      "Đúng giờ": b.present_count - b.late_count,
-      "Đi trễ": b.late_count,
-      "Vắng mặt": b.absent_count,
-    })) ?? [];
+    chartStats?.data.map((b) => {
+      const total = b.total_employees || 1;
+      const lateEarly = b.late_count + b.early_leave_count + b.half_day_count;
+      return {
+        name: b.branch_code,
+        "Đúng giờ": Math.round(b.present_count / total * 100),
+        "Đi trễ - Về sớm": Math.round(lateEarly / total * 100),
+        "Vắng mặt": Math.round(b.absent_count / total * 100),
+      };
+    }) ?? [];
 
   return (
     <div>
@@ -135,7 +158,7 @@ export default function DashboardPage() {
             loading={statsLoading}
           />
           <StatCard
-            title="Đi trễ"
+            title="Đi trễ - Về sớm"
             value={stats?.late_today ?? 0}
             icon={Clock}
             color="bg-yellow-500"
@@ -173,8 +196,8 @@ export default function DashboardPage() {
                       paddingAngle={3}
                       dataKey="value"
                     >
-                      {pieData.map((_, index) => (
-                        <Cell key={index} fill={COLORS[index]} />
+                      {pieData.map((entry, index) => (
+                        <Cell key={index} fill={STATUS_COLORS[entry.name] ?? "#6366f1"} />
                       ))}
                     </Pie>
                     <Tooltip />
@@ -187,44 +210,41 @@ export default function DashboardPage() {
 
           {/* Bar chart */}
           <Card className="lg:col-span-2">
-            <CardHeader className="flex flex-row items-center justify-between">
+            <CardHeader className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
               <CardTitle className="text-base">Thống kê theo chi nhánh hôm nay</CardTitle>
-              <Select
-                value={branchId?.toString() ?? "all"}
-                onValueChange={(v) => {
-                  setBranchId(v === "all" ? undefined : Number(v));
-                  setPage(1);
-                }}
-              >
-                <SelectTrigger className="w-44">
-                  <SelectValue placeholder="Tất cả chi nhánh" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Tất cả chi nhánh</SelectItem>
-                  {branches?.map((b) => (
-                    <SelectItem key={b.id} value={b.id.toString()}>
-                      {b.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Input
+                placeholder="Tìm theo tên/code..."
+                value={chartSearch}
+                onChange={(e) => setChartSearch(e.target.value)}
+                className="w-full sm:w-52"
+              />
             </CardHeader>
             <CardContent>
-              {todayLoading ? (
+              {chartLoading ? (
                 <Skeleton className="h-64 w-full" />
               ) : (
-                <ResponsiveContainer width="100%" height={240}>
-                  <BarChart data={barData}>
-                    <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                    <XAxis dataKey="name" className="text-xs" />
-                    <YAxis className="text-xs" />
-                    <Tooltip />
-                    <Legend />
-                    <Bar dataKey="Đúng giờ" fill="#22c55e" radius={[4, 4, 0, 0]} />
-                    <Bar dataKey="Đi trễ" fill="#f59e0b" radius={[4, 4, 0, 0]} />
-                    <Bar dataKey="Vắng mặt" fill="#ef4444" radius={[4, 4, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
+                <>
+                  <div className="overflow-x-auto pb-2">
+                    <div style={{ minWidth: barData.length > 5 ? barData.length * 80 + "px" : undefined }}>
+                      <ResponsiveContainer width="100%" height={240}>
+                        <BarChart data={barData} maxBarSize={60}>
+                          <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                          <XAxis dataKey="name" className="text-xs" tick={{ fontSize: 11 }} />
+                          <YAxis className="text-xs" domain={[0, 100]} unit="%" allowDecimals={false} />
+                          <Tooltip formatter={(v: number) => `${v}%`} />
+                          <Bar dataKey="Đúng giờ" stackId="a" fill="#22c55e" />
+                          <Bar dataKey="Đi trễ - Về sớm" stackId="a" fill="#f59e0b" />
+                          <Bar dataKey="Vắng mặt" stackId="a" fill="#ef4444" radius={[4, 4, 0, 0]} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-center gap-6 pt-2 text-sm">
+                    <div className="flex items-center gap-1.5"><div className="h-3 w-3 rounded-sm bg-[#22c55e]" />Đúng giờ</div>
+                    <div className="flex items-center gap-1.5"><div className="h-3 w-3 rounded-sm bg-[#f59e0b]" />Đi trễ - Về sớm</div>
+                    <div className="flex items-center gap-1.5"><div className="h-3 w-3 rounded-sm bg-[#ef4444]" />Vắng mặt</div>
+                  </div>
+                </>
               )}
             </CardContent>
           </Card>
@@ -232,8 +252,17 @@ export default function DashboardPage() {
 
         {/* Today branch table */}
         <Card>
-          <CardHeader>
+          <CardHeader className="flex flex-row items-center justify-between border-b p-6">
             <CardTitle className="text-base">Bảng thống kê chi nhánh</CardTitle>
+            <Input
+              placeholder="Tìm kiếm theo tên chi nhánh..."
+              value={search}
+              onChange={(e) => {
+                setSearch(e.target.value);
+                setPage(1);
+              }}
+              className="max-w-xs"
+            />
           </CardHeader>
           <CardContent className="p-0">
             {todayLoading ? (
@@ -248,7 +277,7 @@ export default function DashboardPage() {
                   <table className="w-full text-sm">
                     <thead className="border-b">
                       <tr>
-                        {["Chi nhánh", "Tổng NV", "Có mặt", "Đi trễ", "Vắng", "Tỷ lệ"].map(
+                        {["Chi nhánh", "Tổng NV", "Có mặt", "Đi trễ - Về sớm", "Vắng", "Tỷ lệ"].map(
                           (h) => (
                             <th key={h} className="h-12 px-4 text-left font-medium text-muted-foreground">
                               {h}
@@ -265,8 +294,8 @@ export default function DashboardPage() {
                             <div className="text-xs text-muted-foreground">{b.branch_code}</div>
                           </td>
                           <td className="px-4 py-3">{b.total_employees}</td>
-                          <td className="px-4 py-3 text-green-600">{b.present_count}</td>
-                          <td className="px-4 py-3 text-yellow-600">{b.late_count}</td>
+                          <td className="px-4 py-3 text-green-600">{b.present_count + b.late_count + b.early_leave_count + b.half_day_count}</td>
+                          <td className="px-4 py-3 text-yellow-600">{b.late_count + b.early_leave_count + b.half_day_count}</td>
                           <td className="px-4 py-3 text-red-600">{b.absent_count}</td>
                           <td className="px-4 py-3">
                             <div className="flex items-center gap-2">

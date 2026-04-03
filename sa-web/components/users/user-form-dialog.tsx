@@ -17,6 +17,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Loader2 } from "lucide-react";
 import { User, CreateUserRequest, UpdateUserRequest } from "@/types/user";
 import { Branch } from "@/types/branch";
+import { useCurrentUser } from "@/hooks/use-auth";
 import { useEffect } from "react";
 
 const createSchema = z.object({
@@ -59,6 +60,8 @@ export function UserFormDialog({
   loading,
 }: UserFormDialogProps) {
   const isEdit = !!defaultValues;
+  const { data: currentUser } = useCurrentUser();
+  const isAdmin = currentUser?.role === "admin";
 
   const createForm = useForm<CreateFormData>({ resolver: zodResolver(createSchema) });
   const updateForm = useForm<UpdateFormData>({ resolver: zodResolver(updateSchema) });
@@ -73,7 +76,11 @@ export function UserFormDialog({
         avatar_url: defaultValues.avatar_url,
       });
     } else if (open) {
-      createForm.reset({ role: "employee" });
+      // Manager: auto-fill chi nhánh và vai trò nhân viên
+      createForm.reset({
+        role: "employee",
+        branch_id: !isAdmin && currentUser?.branch_id ? currentUser.branch_id : undefined,
+      });
     }
   }, [open, defaultValues]);
 
@@ -144,15 +151,22 @@ export function UserFormDialog({
               <Label>Vai trò *</Label>
               <Select
                 defaultValue="employee"
+                disabled={!isAdmin}
                 onValueChange={(v) => createForm.setValue("role", v as any)}
               >
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="admin">Admin</SelectItem>
-                  <SelectItem value="manager">Quản lý</SelectItem>
-                  <SelectItem value="employee">Nhân viên</SelectItem>
+                  {isAdmin ? (
+                    <>
+                      <SelectItem value="admin">Admin</SelectItem>
+                      <SelectItem value="manager">Quản lý</SelectItem>
+                      <SelectItem value="employee">Nhân viên</SelectItem>
+                    </>
+                  ) : (
+                    <SelectItem value="employee">Nhân viên</SelectItem>
+                  )}
                 </SelectContent>
               </Select>
             </div>
@@ -182,18 +196,25 @@ export function UserFormDialog({
 
           <div className="space-y-2">
             <Label>Chi nhánh</Label>
-            <Select onValueChange={(v) => createForm.setValue("branch_id", Number(v))}>
-              <SelectTrigger>
-                <SelectValue placeholder="Chọn chi nhánh..." />
-              </SelectTrigger>
-              <SelectContent>
-                {branches.map((b) => (
-                  <SelectItem key={b.id} value={b.id.toString()}>
-                    {b.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            {isAdmin ? (
+              <Select onValueChange={(v) => createForm.setValue("branch_id", Number(v))}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Chọn chi nhánh..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {branches.map((b) => (
+                    <SelectItem key={b.id} value={b.id.toString()}>
+                      {b.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : (
+              <Input
+                value={branches.find((b) => b.id === currentUser?.branch_id)?.name ?? ""}
+                disabled
+              />
+            )}
           </div>
 
           <div className="grid grid-cols-2 gap-4">

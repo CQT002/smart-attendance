@@ -1,6 +1,11 @@
+import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
 
 class LocationService {
+  /// GPS hardcode cho debug/simulator — toạ độ chi nhánh TP.HCM
+  static const _debugLat = 15.8102;
+  static const _debugLng = 105.879;
+
   Future<bool> checkPermission() async {
     bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) return false;
@@ -16,7 +21,25 @@ class LocationService {
     return true;
   }
 
+  Position _debugPosition() => Position(
+        latitude: _debugLat,
+        longitude: _debugLng,
+        timestamp: DateTime.now(),
+        accuracy: 10.0,
+        altitude: 0.0,
+        altitudeAccuracy: 0.0,
+        heading: 0.0,
+        headingAccuracy: 0.0,
+        speed: 0.0,
+        speedAccuracy: 0.0,
+      );
+
   Future<Position?> getCurrentPosition() async {
+    // Debug mode: luôn trả về tọa độ hardcode để test trên simulator/desktop
+    if (kDebugMode) {
+      return _debugPosition();
+    }
+
     final hasPermission = await checkPermission();
     if (!hasPermission) return null;
 
@@ -44,6 +67,8 @@ class LocationService {
 
   /// Check if mock/fake GPS is enabled
   Future<bool> isMockLocation() async {
+    if (kDebugMode) return false;
+
     try {
       final position = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.high,

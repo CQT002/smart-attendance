@@ -6,11 +6,12 @@ import "time"
 type AttendanceStatus string
 
 const (
-	StatusPresent    AttendanceStatus = "present"     // Có mặt đúng giờ
-	StatusLate       AttendanceStatus = "late"        // Đi muộn
-	StatusEarlyLeave AttendanceStatus = "early_leave" // Về sớm
-	StatusAbsent     AttendanceStatus = "absent"      // Vắng mặt
-	StatusHalfDay    AttendanceStatus = "half_day"    // Nửa ngày
+	StatusPresent        AttendanceStatus = "present"          // Có mặt đúng giờ
+	StatusLate           AttendanceStatus = "late"             // Đi muộn
+	StatusEarlyLeave     AttendanceStatus = "early_leave"      // Về sớm
+	StatusLateEarlyLeave AttendanceStatus = "late_early_leave" // Đi muộn + Về sớm
+	StatusAbsent         AttendanceStatus = "absent"           // Vắng mặt
+	StatusHalfDay        AttendanceStatus = "half_day"         // Nửa ngày
 )
 
 // CheckMethod phương thức xác thực vị trí

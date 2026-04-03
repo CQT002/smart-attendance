@@ -15,7 +15,6 @@ abstract class AttendanceRepository {
   });
 
   Future<AttendanceModel> checkOut({
-    required int attendanceId,
     required double latitude,
     required double longitude,
     required String ssid,

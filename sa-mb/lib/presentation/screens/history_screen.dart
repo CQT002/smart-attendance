@@ -19,6 +19,8 @@ class _HistoryScreenState extends State<HistoryScreen> {
   late DateTime _currentMonth;
   AttendanceModel? _selectedDayRecord;
   DateTime? _selectedDay;
+  List<AttendanceModel> _cachedRecords = [];
+  bool _isLoadingHistory = false;
 
   @override
   void initState() {
@@ -77,55 +79,52 @@ class _HistoryScreenState extends State<HistoryScreen> {
 
           // Calendar + detail
           Expanded(
-            child: BlocBuilder<AttendanceBloc, AttendanceState>(
-              builder: (context, state) {
-                if (state is AttendanceLoading) {
-                  return const Center(child: CircularProgressIndicator());
+            child: BlocListener<AttendanceBloc, AttendanceState>(
+              listener: (context, state) {
+                if (state is AttendanceLoading && _isLoadingHistory) {
+                  // Chỉ show loading khi đang load history, không phải check-in/out
+                } else if (state is AttendanceHistoryLoaded) {
+                  setState(() {
+                    _isLoadingHistory = false;
+                    _cachedRecords = state.records;
+                  });
+                } else if (state is AttendanceCheckInSuccess || state is AttendanceCheckOutSuccess) {
+                  // Sau check-in/checkout thành công → reload history để cập nhật data mới nhất
+                  _loadMonth();
                 }
+              },
+              child: Builder(
+                builder: (context) {
+                  if (_isLoadingHistory && _cachedRecords.isEmpty) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
 
-                if (state is AttendanceFailure) {
-                  return Center(
+                  final records = _cachedRecords;
+                  final recordMap = <String, AttendanceModel>{};
+                  for (final r in records) {
+                    recordMap[_dateKey(r.date)] = r;
+                  }
+
+                  return SingleChildScrollView(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
                     child: Column(
-                      mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(Icons.error_outline, size: 48, color: AppColors.error),
+                        _buildCalendar(theme, recordMap),
                         const SizedBox(height: 16),
-                        Text(state.message),
+                        _buildLegend(theme),
                         const SizedBox(height: 16),
-                        TextButton(
-                          onPressed: _loadMonth,
-                          child: const Text('Thử lại'),
-                        ),
+                        _buildSummary(theme, records),
+                        const SizedBox(height: 16),
+                        if (_selectedDayRecord != null)
+                          AttendanceCard(attendance: _selectedDayRecord!),
+                        if (_selectedDay != null && _selectedDayRecord == null)
+                          _buildNoRecordCard(theme),
+                        const SizedBox(height: 24),
                       ],
                     ),
                   );
-                }
-
-                final records = state is AttendanceHistoryLoaded ? state.records : <AttendanceModel>[];
-                final recordMap = <String, AttendanceModel>{};
-                for (final r in records) {
-                  recordMap[_dateKey(r.date)] = r;
-                }
-
-                return SingleChildScrollView(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: Column(
-                    children: [
-                      _buildCalendar(theme, recordMap),
-                      const SizedBox(height: 16),
-                      _buildLegend(theme),
-                      const SizedBox(height: 16),
-                      _buildSummary(theme, records),
-                      const SizedBox(height: 16),
-                      if (_selectedDayRecord != null)
-                        AttendanceCard(attendance: _selectedDayRecord!),
-                      if (_selectedDay != null && _selectedDayRecord == null)
-                        _buildNoRecordCard(theme),
-                      const SizedBox(height: 24),
-                    ],
-                  ),
-                );
-              },
+                },
+              ),
             ),
           ),
         ],
@@ -267,15 +266,19 @@ class _HistoryScreenState extends State<HistoryScreen> {
                       });
                     },
               child: Container(
-                height: 44,
+                height: 40,
+                width: 40,
                 margin: const EdgeInsets.all(2),
                 decoration: BoxDecoration(
-                  color: color?.withOpacity(isSelected ? 1.0 : 0.85),
-                  borderRadius: BorderRadius.circular(8),
-                  border: isToday
-                      ? Border.all(color: AppColors.primary, width: 2.5)
-                      : isSelected
-                          ? Border.all(color: AppColors.textPrimary, width: 2)
+                  shape: BoxShape.circle,
+                  color: isSelected ? color : null,
+                  border: color != null
+                      ? Border.all(
+                          color: isToday ? AppColors.primary : color,
+                          width: isToday ? 2.5 : 2,
+                        )
+                      : isToday
+                          ? Border.all(color: AppColors.primary, width: 2.5)
                           : null,
                 ),
                 child: Center(
@@ -283,11 +286,9 @@ class _HistoryScreenState extends State<HistoryScreen> {
                     '$day',
                     style: theme.textTheme.bodyMedium?.copyWith(
                       fontWeight: isToday ? FontWeight.w800 : FontWeight.w600,
-                      color: color == AppColors.calendarDayOff
-                          ? AppColors.textSecondary
-                          : color != null
-                              ? Colors.white
-                              : AppColors.textPrimary,
+                      color: isSelected && color != null
+                          ? Colors.white
+                          : color ?? AppColors.textPrimary,
                     ),
                   ),
                 ),
@@ -381,8 +382,8 @@ class _HistoryScreenState extends State<HistoryScreen> {
           width: 14,
           height: 14,
           decoration: BoxDecoration(
-            color: color,
-            borderRadius: BorderRadius.circular(4),
+            shape: BoxShape.circle,
+            border: Border.all(color: color, width: 2),
           ),
         ),
         const SizedBox(width: 6),

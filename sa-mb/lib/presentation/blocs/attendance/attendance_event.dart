@@ -19,16 +19,14 @@ class AttendanceCheckInRequested extends AttendanceEvent {
 }
 
 class AttendanceCheckOutRequested extends AttendanceEvent {
-  final int attendanceId;
   final String method;
 
   const AttendanceCheckOutRequested({
-    required this.attendanceId,
     required this.method,
   });
 
   @override
-  List<Object?> get props => [attendanceId, method];
+  List<Object?> get props => [method];
 }
 
 class AttendanceLoadHistory extends AttendanceEvent {

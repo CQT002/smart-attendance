@@ -5,6 +5,7 @@ import (
 
 	"github.com/hdbank/smart-attendance/internal/domain/repository"
 	"github.com/hdbank/smart-attendance/internal/domain/usecase"
+	"github.com/hdbank/smart-attendance/internal/middleware"
 	"github.com/hdbank/smart-attendance/pkg/apperrors"
 	"github.com/hdbank/smart-attendance/pkg/response"
 	"github.com/hdbank/smart-attendance/pkg/utils"
@@ -67,6 +68,11 @@ func (h *BranchHandler) GetList(c echo.Context) error {
 		Search: c.QueryParam("search"),
 		Page:   pagination.Page,
 		Limit:  pagination.Limit,
+	}
+
+	// Manager: chỉ xem chi nhánh của mình
+	if !middleware.IsAdmin(c) {
+		filter.BranchID = middleware.GetBranchID(c)
 	}
 
 	branches, total, err := h.branchUsecase.GetList(c.Request().Context(), filter)

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Header } from "@/components/layout/header";
 import { useAttendanceReport, useBranchReport } from "@/hooks/use-reports";
 import { useActiveBranches } from "@/hooks/use-branches";
+import { useCurrentUser } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -24,10 +25,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Tabs } from "@radix-ui/react-tabs";
-import { Search, Download, TrendingUp } from "lucide-react";
+import { Search, TrendingUp } from "lucide-react";
 import { ReportFilter, ReportPeriod } from "@/types/report";
-import { formatPercent, formatHours, formatDate } from "@/lib/utils";
+import { formatPercent, formatHours } from "@/lib/utils";
 import {
   BarChart,
   Bar,
@@ -53,21 +53,31 @@ function RateCell({ value }: { value: number }) {
 }
 
 export default function ReportsPage() {
+  const { data: currentUser } = useCurrentUser();
+  const isAdmin = currentUser?.role === "admin";
+
   const [activeTab, setActiveTab] = useState<"employee" | "branch">("employee");
   const [filter, setFilter] = useState<ReportFilter>({
     period: "monthly",
     page: 1,
-    limit: 20,
+    limit: 10,
   });
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
 
+  // Manager: auto-filter theo chi nhánh của mình
+  const effectiveFilter = !isAdmin && currentUser?.branch_id
+    ? { ...filter, branch_id: currentUser.branch_id }
+    : filter;
+
   const { data: branches } = useActiveBranches();
   const { data: empReport, isLoading: empLoading } = useAttendanceReport(
-    activeTab === "employee" ? filter : {}
+    effectiveFilter,
+    activeTab === "employee"
   );
   const { data: branchReport, isLoading: branchLoading } = useBranchReport(
-    activeTab === "branch" ? filter : {}
+    effectiveFilter,
+    activeTab === "branch"
   );
 
   const applyFilter = () => {
@@ -133,28 +143,36 @@ export default function ReportsPage() {
             </>
           )}
 
-          <Select
-            value={filter.branch_id?.toString() ?? "all"}
-            onValueChange={(v) =>
-              setFilter((f) => ({
-                ...f,
-                branch_id: v === "all" ? undefined : Number(v),
-                page: 1,
-              }))
-            }
-          >
-            <SelectTrigger className="w-44">
-              <SelectValue placeholder="Chi nhánh" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Tất cả chi nhánh</SelectItem>
-              {branches?.map((b) => (
-                <SelectItem key={b.id} value={b.id.toString()}>
-                  {b.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          {isAdmin ? (
+            <Select
+              value={filter.branch_id?.toString() ?? "all"}
+              onValueChange={(v) =>
+                setFilter((f) => ({
+                  ...f,
+                  branch_id: v === "all" ? undefined : Number(v),
+                  page: 1,
+                }))
+              }
+            >
+              <SelectTrigger className="w-44">
+                <SelectValue placeholder="Chi nhánh" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Tất cả chi nhánh</SelectItem>
+                {branches?.map((b) => (
+                  <SelectItem key={b.id} value={b.id.toString()}>
+                    {b.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : (
+            <Input
+              value={branches?.find((b) => b.id === currentUser?.branch_id)?.name ?? "Chi nhánh của tôi"}
+              disabled
+              className="w-44"
+            />
+          )}
 
           <Input
             placeholder="Phòng ban"
@@ -239,16 +257,16 @@ export default function ReportsPage() {
                       {empReport?.data.map((r) => (
                         <TableRow key={r.user_id}>
                           <TableCell>
-                            <div className="font-medium">{r.user?.name ?? `#${r.user_id}`}</div>
+                            <div className="font-medium">{r.user_name || r.user?.name || `#${r.user_id}`}</div>
                             <div className="text-xs text-muted-foreground">
-                              {r.user?.employee_code}
+                              {r.employee_code || r.user?.employee_code}
                             </div>
                           </TableCell>
                           <TableCell className="text-sm">
-                            {r.user?.branch?.name ?? "—"}
+                            {r.department || r.user?.branch?.name || "—"}
                           </TableCell>
-                          <TableCell className="text-sm">{r.present_count}/{r.total_days}</TableCell>
-                          <TableCell className="text-sm text-green-600">{r.present_count - r.late_count}</TableCell>
+                          <TableCell className="text-sm">{r.present_count + r.late_count}/{r.total_days}</TableCell>
+                          <TableCell className="text-sm text-green-600">{r.present_count}</TableCell>
                           <TableCell className="text-sm text-yellow-600">{r.late_count}</TableCell>
                           <TableCell className="text-sm text-red-600">{r.absent_count}</TableCell>
                           <TableCell className="text-sm">{formatHours(r.total_work_hours)}</TableCell>

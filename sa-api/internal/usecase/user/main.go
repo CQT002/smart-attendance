@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/hdbank/smart-attendance/config"
@@ -85,7 +86,7 @@ func (u *userUsecase) Create(ctx context.Context, req usecase.CreateUserRequest)
 
 	user := &entity.User{
 		BranchID:     req.BranchID,
-		EmployeeCode: req.EmployeeCode,
+		EmployeeCode: strings.ToUpper(req.EmployeeCode),
 		Name:         req.Name,
 		Email:        req.Email,
 		Phone:        req.Phone,

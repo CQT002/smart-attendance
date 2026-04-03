@@ -14,7 +14,8 @@
 5. [Chiến lược Scaling — 5.000 nhân viên đồng thời](#5-chiến-lược-scaling--5000-nhân-viên-đồng-thời)
 6. [Git Flow & CI/CD](#6-git-flow--cicd)
 7. [Folder Structure](#7-folder-structure)
-8. [Cài đặt & Chạy Project](#8-cài-đặt--chạy-project)
+8. [Tính năng & Lộ trình phát triển](#8-tính-năng--lộ-trình-phát-triển)
+9. [Cài đặt & Chạy Project](#9-cài-đặt--chạy-project)
 
 ---
 
@@ -140,100 +141,20 @@ POST /api/v1/attendance/check-in
 ### Chi tiết từng lớp
 
 #### Lớp 1 — Device Integrity
+- **Phát hiện GPS giả:** Kiểm tra cờ tệp (flag) `is_fake_gps` từ Mobile SDK.
+- **Phát hiện VPN/Proxy:** Khớp cờ `is_vpn` để chặn điểm danh.
+- **IP Blocklist:** Khớp IP yêu cầu với danh sách đen đã khai báo.
+- **Lịch sử vi phạm (Behavior):** Chặn nếu tài khoản vi phạm trên 3 lần trong 7 ngày.
 
-```go
-// usecase/attendance/main.go
-func (u *attendanceUsecase) antiFraudCheck(ctx, userID, isFakeGPS, isVPN, ip, deviceID) error {
-
-    // 1a. Flag từ Mobile SDK (Android/iOS phát hiện mock location)
-    if isFakeGPS {
-        return apperrors.New(403, "FAKE_GPS_DETECTED", "Phát hiện GPS giả")
-    }
-
-    // 1b. Flag từ Mobile SDK (phát hiện VPN/Proxy active)
-    if isVPN {
-        return apperrors.New(403, "VPN_DETECTED", "Không được dùng VPN khi chấm công")
-    }
-
-    // 1c. Server-side IP blocklist (Admin có thể block IP qua Redis)
-    if blocked, _ := u.cache.Exists(ctx, "blocked:ip:"+ip); blocked {
-        return apperrors.New(403, "IP_BLOCKED", "IP bị chặn")
-    }
-
-    // 1d. Kiểm tra lịch sử vi phạm (partial index query)
-    since := time.Now().AddDate(0, 0, -7)
-    count, _ := u.attendanceRepo.CountSuspicious(ctx, userID, since)
-    if count >= 3 {
-        return apperrors.New(403, "SUSPICIOUS_ACTIVITY", "Tài khoản bị tạm khóa do vi phạm nhiều lần")
-    }
-
-    return nil
-}
-```
-
-> **Thiết kế quan trọng:** Dù gian lận bị phát hiện ở bước 1d, hệ thống vẫn **cho phép check-in nhưng đánh dấu `is_fake_gps=true`** vào DB để manager xem xét — tránh block nhân viên oan trong edge case. Chỉ block khi đạt ngưỡng vi phạm.
+> **Thiết kế quan trọng:** Dù phát hiện gian lận bằng SDK, hệ thống vẫn cho phép tạo bản ghi nhưng lưu trạng thái "nghi ngờ" để Manager rà soát thay vì tự động khóa ngay, tránh các trường hợp block nhầm.
 
 #### Lớp 2 — Location Validation
-
-**WiFi được ưu tiên** vì chính xác hơn trong nhà, không bị che khuất tín hiệu GPS:
-
-```go
-func (u *attendanceUsecase) validateLocation(ctx, branchID, lat, lng, ssid, bssid) (CheckMethod, error) {
-
-    // Thử WiFi trước
-    if ssid != "" || bssid != "" {
-        valid, _ := u.wifiConfigRepo.ValidateWiFi(ctx, branchID, ssid, bssid)
-        if valid {
-            return CheckMethodWiFi, nil  // Xác thực thành công
-        }
-    }
-
-    // Fallback sang GPS Geofencing
-    if lat != 0 && lng != 0 {
-        if !pkg.IsValidCoordinate(lat, lng) {
-            return "", ErrLocationNotAllowed
-        }
-        configs, _ := u.gpsConfigRepo.FindActiveBranch(ctx, branchID)
-        for _, cfg := range configs {
-            if pkg.IsWithinGeofence(lat, lng, cfg.Latitude, cfg.Longitude, cfg.Radius) {
-                return CheckMethodGPS, nil
-            }
-        }
-    }
-
-    return "", ErrLocationNotAllowed
-}
-```
-
-**Công thức Haversine** tính khoảng cách trên bề mặt Trái Đất (độ chính xác ±10m):
-
-```go
-// pkg/utils/geo.go
-func IsWithinGeofence(userLat, userLng, centerLat, centerLng, radiusM float64) bool {
-    const R = 6371000 // bán kính Trái Đất (mét)
-    φ1, φ2 := userLat*math.Pi/180, centerLat*math.Pi/180
-    Δφ := (centerLat - userLat) * math.Pi / 180
-    Δλ := (centerLng - userLng) * math.Pi / 180
-
-    a := math.Sin(Δφ/2)*math.Sin(Δφ/2) +
-         math.Cos(φ1)*math.Cos(φ2)*math.Sin(Δλ/2)*math.Sin(Δλ/2)
-    c := 2 * math.Atan2(math.Sqrt(a), math.Sqrt(1-a))
-
-    return R*c <= radiusM
-}
-```
+- **Xác thực WiFi (Primary):** Khớp SSID và BSSID gửi lên với cấu hình thiết bị phát mạng lưu trữ tại cơ sở dữ liệu chi nhánh.
+- **GPS Geofencing (Fallback):** Sử dụng hệ thức khoảng cách điểm (Haversine Formula) đối chiếu toạ độ thiết bị trong bán kính quy định (thường là ±10m).
 
 #### Lớp 3 — Business Rules & Security
-
-```go
-// CRITICAL: Đọc branch_id từ DB, KHÔNG tin dữ liệu client
-user, _ := u.userRepo.FindByID(ctx, req.UserID)
-branchID := *user.BranchID  // ← Sử dụng giá trị từ DB
-
-// Lý do: Prevent privilege escalation — nếu user gửi branch_id giả,
-// họ có thể pass geofencing của chi nhánh khác.
-// Đây là security decision quan trọng nhất trong luồng check-in.
-```
+- **Ngăn chặn leo thang đặc quyền (Privilege Escalation):** Toàn bộ dữ liệu chi nhánh được đối chiếu qua JWT Token và truy vấn từ Database, nghiêm cấm đặt lòng tin vào tham số `branch_id` do thiết bị tự truyền xuống.
+- **Khóa Spam/Rate Limit:** Cập nhật phiên bằng Database và cấu trúc bộ nhớ đệm (Cache) để chống gửi liên tục.
 
 ### So sánh phương thức xác thực
 
@@ -251,80 +172,13 @@ branchID := *user.BranchID  // ← Sử dụng giá trị từ DB
 
 ### Database Schema — Thiết kế cho 100 chi nhánh
 
-```sql
--- Branches: Hub trung tâm, mỗi chi nhánh độc lập
-CREATE TABLE branches (
-    id      SERIAL PRIMARY KEY,
-    code    VARCHAR(20) NOT NULL UNIQUE,  -- CN001, CN002...
-    name    VARCHAR(200) NOT NULL,
-    city    VARCHAR(100),
-    ...
-    is_active BOOLEAN NOT NULL DEFAULT TRUE
-);
-CREATE INDEX idx_branches_is_active ON branches (is_active);
+Kiến trúc cách ly dữ liệu Database được thiết kế cho sự tương tác giữa hàng chục ngàn nhân viên đồng thời:
+- **Cấu trúc Ràng buộc (Schema constraint):** Dữ liệu User bị khóa cứng với Role tương ứng và Branch. Các thao tác đều phụ thuộc khóa ngoại.
+- **Chỉ mục tối ưu (Partial Indexing):** Hệ thống chỉ tạo Index chuyên biệt trên các bản ghi có sự mâu thuẫn (như Fake GPS/VPN). Kỹ thuật này giữ cho tốc độ nhận diện sự cố đạt tốc độ chớp nhoáng (O(log M)).
 
--- Users: Gắn chặt với branch thông qua FK
-CREATE TABLE users (
-    id          SERIAL PRIMARY KEY,
-    branch_id   INTEGER REFERENCES branches(id) ON DELETE SET NULL,
-    --                 ↑ NULL chỉ cho Admin (không thuộc chi nhánh nào)
-    role        VARCHAR(20) CHECK (role IN ('admin', 'manager', 'employee')),
-    is_active   BOOLEAN NOT NULL DEFAULT TRUE,
-    ...
-    CONSTRAINT uq_user_email        UNIQUE (email),
-    CONSTRAINT uq_user_employee_code UNIQUE (employee_code)
-);
+### Báo cáo Tốc độ cao (Pre-computed Aggregates)
 
--- Index composite cho pattern query phổ biến nhất của Manager
-CREATE INDEX idx_users_branch_role_active ON users (branch_id, role, is_active);
---                                                   ↑         ↑     ↑
---                                          Lọc theo CN  + Role + Active
-
--- Attendance: Mỗi bản ghi gắn với CÙNG LÚC user VÀ branch
-CREATE TABLE attendance_logs (
-    id        SERIAL PRIMARY KEY,
-    user_id   INTEGER NOT NULL REFERENCES users(id),
-    branch_id INTEGER NOT NULL REFERENCES branches(id),
-    date      DATE    NOT NULL,
-    ...
-    CONSTRAINT uq_attendance_user_date UNIQUE (user_id, date)
-    --         ↑ Database-level prevention của duplicate check-in
-);
-
--- Index cho query check-in hôm nay (hot path, chạy mọi request)
-CREATE INDEX idx_attendance_user_date    ON attendance_logs (user_id, date DESC);
-CREATE INDEX idx_attendance_branch_date  ON attendance_logs (branch_id, date DESC);
-
--- Partial index chỉ cho records gian lận (giảm kích thước index đáng kể)
-CREATE INDEX idx_attendance_fraud ON attendance_logs (user_id, created_at DESC)
-    WHERE is_fake_gps = TRUE OR is_vpn = TRUE;
-```
-
-### DailySummary — Pre-computed Aggregates
-
-Thay vì chạy `GROUP BY` tốn kém mỗi khi load dashboard, hệ thống duy trì bảng tổng hợp được tính trước:
-
-```sql
-CREATE TABLE daily_summaries (
-    id              SERIAL PRIMARY KEY,
-    branch_id       INTEGER NOT NULL REFERENCES branches(id),
-    date            DATE    NOT NULL,
-    total_employees INTEGER NOT NULL DEFAULT 0,
-    present_count   INTEGER NOT NULL DEFAULT 0,
-    late_count      INTEGER NOT NULL DEFAULT 0,
-    absent_count    INTEGER NOT NULL DEFAULT 0,
-    attendance_rate DECIMAL(5,2) NOT NULL DEFAULT 0,
-    on_time_rate    DECIMAL(5,2) NOT NULL DEFAULT 0,
-    ...
-    CONSTRAINT uq_daily_branch_date UNIQUE (branch_id, date)
-    -- Cho phép UPSERT: INSERT ... ON CONFLICT (branch_id, date) DO UPDATE SET ...
-);
-
--- Range scan hiệu quả cho báo cáo 30 ngày
-CREATE INDEX idx_daily_branch_date ON daily_summaries (branch_id, date DESC);
--- Full-system view (Admin): tất cả chi nhánh trong 1 ngày
-CREATE INDEX idx_daily_date         ON daily_summaries (date);
-```
+Thay vì gọi hàm toán học Group-By tốn kém tài nguyên mỗi khi yêu cầu báo cáo, cấu trúc bảng `daily_summaries` lưu trữ các dữ liệu tích lũy chạy theo cơ chế "Cập nhật bù" (UPSERT). Hệ thống tự cộng dồn chỉ số khi có điểm danh mới.
 
 ### Data Isolation — Cách Manager chỉ thấy dữ liệu chi nhánh mình
 
@@ -340,83 +194,14 @@ JWTAuth đọc token       Handler kiểm tra         Query tự động thêm
                            không khớp
 ```
 
-**Ví dụ cụ thể** — Manager chi nhánh 5 gọi API lấy danh sách nhân viên:
+**Quy trình thực thi ngăn lách luật:**
+- **Tầng Middleware:** Bốc tách Branch Identifier từ JWT.
+- **Tầng Handler Business:** Xác thực vai trò. Nếu Manager yêu cầu tương tác dữ liệu vượt khỏi quyền quản lý nhóm, huỷ ngay giao dịch.
+- **Tầng Repository:** Tự động đính kèm mệnh đề điều kiện rào chắn `WHERE branch_id = XYZ` vào đuôi của tiến trình truy cập nhằm không cho hacker nào có cơ hội qua mặt.
 
-```go
-// handler/admin/user_handler.go
-func (h *UserHandler) GetList(c echo.Context) error {
-    role := middleware.GetRole(c)
-    userBranchID := middleware.GetBranchID(c) // Lấy từ JWT token
+### Dashboard Thời gian thực (Loại bỏ N+1 Query)
 
-    var filter repository.UserFilter
-    // Parse query params: ?branch_id=1&role=employee...
-    bindFilter(c, &filter)
-
-    // Nếu là Manager: bắt buộc filter theo branch của họ,
-    // bất kể client gửi branch_id nào trong query string
-    if role == entity.RoleManager {
-        filter.BranchID = userBranchID // Override bằng giá trị từ JWT
-    }
-    // Admin: giữ nguyên filter từ query string (full access)
-
-    users, total, err := h.userUC.GetList(ctx, filter)
-    ...
-}
-
-// repository/user_repo.go
-func (r *userRepo) FindAll(ctx, filter UserFilter) ([]*entity.User, int64, error) {
-    query := r.db.WithContext(ctx).Model(&entity.User{})
-
-    if filter.BranchID != nil {
-        query = query.Where("branch_id = ?", *filter.BranchID)
-        // ↑ WHERE branch_id = 5 — Tự động giới hạn phạm vi
-    }
-    // ...
-}
-```
-
-### CTE Query cho Dashboard — Không N+1
-
-Report dashboard tổng hợp dùng CTE thay vì loop từng chi nhánh:
-
-```sql
--- Một query duy nhất thay vì 100 queries
-WITH employee_counts AS (
-    SELECT branch_id, COUNT(*) AS total_employees
-    FROM users
-    WHERE is_active = true
-    GROUP BY branch_id
-),
-today_stats AS (
-    SELECT
-        branch_id,
-        COUNT(*) FILTER (WHERE status = 'present')         AS present_count,
-        COUNT(*) FILTER (WHERE status = 'late')            AS late_count,
-        COUNT(*) FILTER (WHERE status = 'absent')          AS absent_count,
-        COUNT(*) FILTER (WHERE is_fake_gps OR is_vpn)      AS fraud_count,
-        ROUND(
-            COUNT(*) FILTER (WHERE status IN ('present','late')) * 100.0
-            / NULLIF(COUNT(*), 0), 2
-        )                                                  AS attendance_rate
-    FROM attendance_logs
-    WHERE date = CURRENT_DATE
-    GROUP BY branch_id
-)
-SELECT
-    b.id, b.name, b.code,
-    COALESCE(ec.total_employees, 0)  AS total_employees,
-    COALESCE(ts.present_count, 0)    AS present_count,
-    COALESCE(ts.late_count, 0)       AS late_count,
-    COALESCE(ts.absent_count, 0)     AS absent_count,
-    COALESCE(ts.attendance_rate, 0)  AS attendance_rate,
-    COALESCE(ts.fraud_count, 0)      AS fraud_count
-FROM branches b
-LEFT JOIN employee_counts ec ON ec.branch_id = b.id
-LEFT JOIN today_stats ts      ON ts.branch_id = b.id
-WHERE b.is_active = true
-ORDER BY b.name
-LIMIT $1 OFFSET $2;
-```
+Dashboard toàn cục dành cho quyền Admin sử dụng bộ công thức Common Table Expressions (CTE) kết xuất chung tỷ lệ gian lận, số người đi làm của cả nền tảng đa chi nhánh chỉ bằng một bước lọc, loại bỏ thao tác vòng lặp đệ quy N+1 Request gây quá tải CPU Database.
 
 ---
 
@@ -439,86 +224,17 @@ LIMIT $1 OFFSET $2;
 
 ### JWT Claims — Nguồn sự thật
 
-```go
-// pkg/utils/jwt.go
-type Claims struct {
-    UserID   uint             `json:"user_id"`
-    BranchID *uint            `json:"branch_id"` // nil nếu là Admin
-    Role     entity.UserRole  `json:"role"`
-    jwt.RegisteredClaims                          // exp, iat, iss...
-}
-```
+Token payload (Mã thông báo JWT) không thể bị làm giả vì nó đã được bọc khóa mã hóa liên kết (Signed Secret). Thông tin Phân quyền duy trì trực tiếp trong đó mà không chịu sự can thiệp từ Client đầu cuối. Các API luôn bóc tách thông qua khóa để cấp phép phân lớp dữ liệu.
 
 Token payload **không thể bị giả mạo** (signed HS256). Handler đọc `BranchID` từ token, không từ request body/query.
 
 ### Middleware RBAC — Thực thi tại Router Layer
 
-```go
-// internal/server/router.go
-admin := e.Group("/api/v1/admin", middleware.JWTAuth(jwtSecret))
+Các tính năng quan trọng và nhạy cảm (Tạo/Xóa User, Cập nhật cấu hình) sẽ đi kèm bộ màng lọc (Middleware) định hướng tự động nhận diện cấp đặc quyền. Bất kỳ sự dồn ép truy cập cấm nào sẽ bị Router Backend triệt tiêu tức thì.
 
-// Nhóm chỉ Admin + Manager thấy
-protected := admin.Group("", middleware.RequireRole(entity.RoleAdmin, entity.RoleManager))
-protected.GET("/users", userHandler.GetList)
-protected.POST("/users", userHandler.Create)
+### RBAC trên Frontend
 
-// Nhóm chỉ Admin được thực hiện
-adminOnly := admin.Group("", middleware.RequireRole(entity.RoleAdmin))
-adminOnly.DELETE("/users/:id", userHandler.Delete)
-adminOnly.POST("/users/:id/reset-password", userHandler.ResetPassword)
-adminOnly.POST("/branches", branchHandler.Create)
-adminOnly.DELETE("/branches/:id", branchHandler.Delete)
-adminOnly.GET("/reports/branches", reportHandler.GetBranchReport)
-```
-
-```go
-// middleware/auth.go
-func RequireRole(allowedRoles ...entity.UserRole) echo.MiddlewareFunc {
-    return func(next echo.HandlerFunc) echo.HandlerFunc {
-        return func(c echo.Context) error {
-            role := GetRole(c)
-            for _, allowed := range allowedRoles {
-                if role == allowed {
-                    return next(c) // PASS
-                }
-            }
-            slog.Warn("access denied", "role", role, "path", c.Path())
-            return apperrors.ErrForbidden
-        }
-    }
-}
-```
-
-### RBAC trên Frontend (Next.js)
-
-Route protection được thực hiện tại `app/(admin)/layout.tsx`:
-
-```typescript
-// app/(admin)/layout.tsx
-export default function AdminLayout({ children }) {
-    const router = useRouter();
-
-    useEffect(() => {
-        if (!isAuthenticated()) {
-            router.replace("/login"); // Redirect nếu chưa đăng nhập
-        }
-    }, []);
-    // ...
-}
-```
-
-UI elements được ẩn/hiện theo role:
-
-```typescript
-// Ví dụ: Nút "Xoá chi nhánh" chỉ hiện với Admin
-const { data: user } = useCurrentUser();
-
-{user?.role === "admin" && (
-    <Button variant="destructive" onClick={() => deleteBranch(id)}>
-        Xoá
-    </Button>
-)}
-```
+Giao diện App và Web đồng bộ rà soát Rule truy cập từ Token nội bộ, tự ẩn các nút chức năng ngoại tuyến đối với Manager quản lý cấp dưới. Việc bảo vệ Layout Root ngăn việc phơi bày giao diện nhạy cảm dù người dùng chưa có cơ hội tải trang dữ liệu.
 
 ---
 
@@ -533,20 +249,8 @@ const { data: user } = useCurrentUser();
 - ~500 requests/phút trong 10 phút đầu giờ = ~8.3 req/giây
 - Mỗi request cần ~3–5 DB queries + ~2 Redis ops
 
-### Redis — Caching & Rate Limiting
-
-#### Connection Pool
-
-```go
-// infrastructure/cache/redis.go
-redis.NewClient(&redis.Options{
-    Addr:         "redis:6379",
-    PoolSize:     10,            // 10 concurrent connections
-    DialTimeout:  5 * time.Second,
-    ReadTimeout:  3 * time.Second,
-    WriteTimeout: 3 * time.Second,
-})
-```
+### Bộ nhớ đệm Redis
+Hàng rào kỹ thuật phòng bị sự cố (Connection Pool / Pooling) liên tục cho phép duy trì và tái chế luồng liên kết nhàn rỗi trong khoảng thời gian chờ (Timeout limit) nhằm chặn đứng triệt để nguy cơ trút tràn bộ nhớ.
 
 #### Key Strategy — Tránh Collision
 
@@ -562,45 +266,13 @@ rate:global:{ip}                        1 phút      Global rate limit
 blocked:ip:{ip}                         Dynamic     Blacklist IP
 ```
 
-#### Rate Limiting — Sliding Window với Redis Atomic INCR
+#### Trượt băng thông tốc độ cao (Sliding Window Limits)
 
-```go
-// middleware/rate_limiter.go
-func (m *RateLimiterMiddleware) checkLimit(ctx, key string, limit int, window time.Duration) error {
-    count, err := m.cache.Incr(ctx, key) // Atomic increment
-    if err != nil {
-        slog.Error("rate limiter redis error", "error", err)
-        return nil // Fail-open: nếu Redis lỗi, cho phép request
-    }
+Cơ chế trượt thanh kết hợp thuật toán bộ nhớ nguyên tử (Atomic Memory Increment) phân tách riêng mức giới hạn nghẽn cục bộ: Điểm danh sở hữu khóa tạm thời là 1 phút/1 lần; Đăng nhập được khóa theo 15 phút. Toàn hệ thống được rào chắn bởi màng bọc phân giải truy cập Global Rate Limit.
 
-    if count == 1 {
-        m.cache.Expire(ctx, key, window) // Set TTL lần đầu
-    }
+### PostgreSQL — Kết nối đa chiều
 
-    if count > int64(limit) {
-        return apperrors.ErrRateLimitExceeded // 429
-    }
-    return nil
-}
-```
-
-| Endpoint | Limit | Window | Key |
-|---|---|---|---|
-| `POST /attendance/check-in` | 10 req | 1 phút | `rate:checkin:{user_id}` |
-| `POST /admin/auth/login` | 10 req | 15 phút | `rate:login:{ip}` |
-| Tất cả routes | 100 req | 1 phút | `rate:global:{ip}` |
-
-### PostgreSQL — Connection Pooling & Index Strategy
-
-#### Connection Pool
-
-```go
-// infrastructure/database/postgres.go
-sqlDB, _ := db.DB()
-sqlDB.SetMaxOpenConns(25)               // Tối đa 25 kết nối đồng thời
-sqlDB.SetMaxIdleConns(10)               // Giữ 10 kết nối sẵn sàng trong pool
-sqlDB.SetConnMaxLifetime(300 * time.Second) // Đóng kết nối sau 5 phút
-```
+Kỹ thuật MaxOpenConns linh động duy trì được sức cản chịu tải nặng. Kỹ thuật MaxIdleConns ngăn không cho Database dập tắt vội kết nối (tái sử dụng lượng Idle Pooling dự trữ), giúp Database đáp ứng phản xạ nhanh ở mili-giây.
 
 | Tham số | Giá trị | Lý do |
 |---|---|---|
@@ -622,14 +294,7 @@ GetShiftDefault (Check-in)       (branch_id, is_default, is_active) O(log n)
 DashboardStats (Today)           (branch_id, date DESC)             O(log n + k)
 ```
 
-**Partial Index** cho fraud detection — chỉ index các bản ghi vi phạm (thường < 1% tổng):
-
-```sql
-CREATE INDEX idx_attendance_fraud
-    ON attendance_logs (user_id, created_at DESC)
-    WHERE is_fake_gps = TRUE OR is_vpn = TRUE;
--- Size index: ~1% so với full index → query siêu nhanh
-```
+Kỹ thuật **Partial Index** chỉ được lót dữ liệu dành cho log danh sách đánh cờ vi phạm (chiếm <1% lượng dữ liệu toàn bộ). Kỹ thuật O(log N+1) loại hình siêu nhẹ này bảo trì việc lưu trữ thông suốt cho Data Warehouse.
 
 ### Ước tính tải hệ thống
 
@@ -708,68 +373,9 @@ refactor(repository): extract base repository with common pagination
 chore(config): migrate from .env to config.yaml with Viper
 ```
 
-### Docker Compose (Development)
+### Hệ sinh thái Môi trường (Dockerization & Containers)
 
-```yaml
-# docker-compose.yml
-version: "3.9"
-services:
-  postgres:
-    image: postgres:16-alpine
-    environment:
-      POSTGRES_DB: smart_attendance
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-    ports: ["5432:5432"]
-    volumes: [postgres_data:/var/lib/postgresql/data]
-
-  redis:
-    image: redis:7-alpine
-    ports: ["6379:6379"]
-    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
-
-  api:
-    build:
-      context: ./sa-api
-      dockerfile: Dockerfile
-    ports: ["8080:8080"]
-    environment:
-      DATABASE_HOST: postgres
-      REDIS_HOST: redis
-      JWT_SECRET: ${JWT_SECRET}
-    depends_on: [postgres, redis]
-
-  web:
-    build:
-      context: ./sa-web
-      dockerfile: Dockerfile
-    ports: ["3000:3000"]
-    environment:
-      NEXT_PUBLIC_API_URL: http://api:8080/api/v1
-    depends_on: [api]
-```
-
-### Dockerfile — Multi-stage Build (API)
-
-```dockerfile
-# sa-api/Dockerfile
-# Stage 1: Build
-FROM golang:1.22-alpine AS builder
-WORKDIR /app
-COPY go.mod go.sum ./
-RUN go mod download
-COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o server ./cmd/server
-
-# Stage 2: Runtime (minimal image ~15MB)
-FROM alpine:3.19
-RUN apk --no-cache add ca-certificates tzdata
-WORKDIR /app
-COPY --from=builder /app/server .
-COPY --from=builder /app/config/config.yaml ./config/
-EXPOSE 8080
-CMD ["./server"]
-```
+Hệ thống được đóng gói đa môi trường (Containerized) bằng quy Standard cấu trúc file tự động thay vì dàn trải hệ điều hành gốc (Native Install). Backend sử dụng màng chắn lớp Multi-Stage gộp cấu thành (Binary Compiling) để ép xung và giảm nhẹ dung lượng tải vận hành Runtime xuống không tưởng (15MB), đảm bảo cho luồng CI/CD lên Server chỉ kéo dài từ 5-10 giây khởi tạo.
 
 ---
 
@@ -958,7 +564,50 @@ sa-mb/
 
 ---
 
-## 8. Cài đặt & Chạy Project
+## 8. Tính năng & Lộ trình phát triển
+
+Hệ thống hiện tại đã đáp ứng Core Flow xuất sắc cho việc điểm danh bảo mật. Dưới đây là danh sách tính năng hiện hữu và lộ trình nâng cấp thành Hệ thống Quản trị Nhân sự (HRIS) toàn diện.
+
+### 8.1. Các tính năng hiện hữu (Current Features)
+
+#### Employee App (Mobile)
+- **Điểm danh an toàn:** Hỗ trợ check-in/out qua GPS và WiFi (SSID/BSSID).
+- **Anti-Fraud:** Chống giả mạo vị trí qua cơ chế nhận diện Fake GPS và Fake VPN.
+- **Lịch sử cá nhân:** Xem trạng thái điểm danh hôm nay và lịch sử theo thời gian.
+- **Bảo mật thiết bị:** Xác định danh tính qua Device ID, App Version.
+
+#### Admin Portal (Web)
+- **Real-time Dashboard:** Thống kê tỷ lệ đi làm, đi muộn, vắng mặt.
+- **Quản lý đa cấu hình:** Quản lý Chi nhánh, thiết lập mạng WiFi hợp lệ, cấu hình toạ độ Geofencing.
+- **Quản lý Nhân sự & Phân quyền:** RBAC (Admin/Manager), tạo/sửa/xoá nhân viên, cấp lại mật khẩu.
+- **Traceability:** Xem lịch sử mọi bản ghi điểm danh và dấu hiệu bị nghi ngờ gian lận.
+
+### 8.2. Lộ trình phát triển (HRIS Roadmap)
+
+#### Nhóm Dành cho Nhân viên (Employee)
+- **Log chấm công bù (Manual Log):** Đơn giải trình quên check-in/out hoặc đi muộn vì lý do khách quan (hỏng xe, gặp đối tác).
+- **Chấm công theo ca (Shift Scheduling):** Hỗ trợ linh hoạt định nghĩa các loại ca (ca hành chính, ca gãy, ca đêm, xoay ca).
+- **Quản lý Nghỉ phép (Leave Management):** Gửi và theo dõi tình trạng đơn xin nghỉ (phép năm, thai sản, nghỉ ốm).
+- **Đăng ký OT (Overtime):** Khai báo làm thêm giờ đi kèm theo hệ số lương và lý do.
+- **Đi công tác (Business Trip):** Đăng ký lịch trình và check-in tại vị trí công tác ngoại tuyến.
+
+#### Nhóm Dành cho Quản lý (Admin/Manager)
+- **Phê duyệt trực tuyến (Online Approvals):** Cấp quản lý duyệt hoặc từ chối ngay lập tức các đơn giải trình trực tiếp trên giao diện app hoặc Web.
+- **Dashboard Thời gian thực nâng cao:** Bố trí danh sách "live" chi tiết đi muộn, vắng mặt dành riêng cho Manager chi nhánh trên App
+- **Quản lý thiết bị (Device Whitelist):** Gỡ liên kết / Phê duyệt máy mới khi nhân viên đổi điện thoại để tránh việc điểm danh hộ.
+- **Xuất báo cáo tự động (Export Report):** Tự động kết xuất báo cáo tổng hợp ra file Excel chuyên nghiệp vào mỗi cuối tháng.
+
+#### Nhóm Nâng cao Chống Gian Lận (Anti-Fraud & AI)
+- **Face Liveness / Recognition:** Yêu cầu chụp ảnh Selfie khi check-in, dùng AI so khớp với khuôn mặt thật để chặn triệt để tình trạng người khác bấm hộ trên máy dự phòng.
+- **Thuật toán rà soát Di chuyển ngầm:** Chạy CronJob phân tích "Điểm chốt Tọa độ & Cảm biến bước chân offline". Nếu một thiết bị liên tục báo về nằm im tại khu vực văn phòng 3 ngày liền mạch (độ chênh lệch vận động = 0), lập tức tống xuất vào Danh sách Đỏ (Máy nghi ngờ gian lận) gửi thông báo cho Manager kiểm tra đột xuất tại chi nhánh.
+
+#### Nhóm Khác (Extensions)
+- **Bảo mật Phiếu Lương (Secure Payslip):** Xem chi tiết bảng lương ngay trên App yêu cầu trích xuất bằng mã PIN / FaceID/TouchID an toàn.
+- **Email Tự động cảnh báo (Alert Automation):** Tự định tuyến gửi email danh sách nhân viên vi phạm / nghi ngờ sử dụng Mock GPS cho trưởng chi nhánh mỗi sáng/tuần.
+
+---
+
+## 9. Cài đặt & Chạy Project
 
 ### Yêu cầu môi trường
 

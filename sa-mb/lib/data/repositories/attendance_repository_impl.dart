@@ -52,7 +52,6 @@ class AttendanceRepositoryImpl implements AttendanceRepository {
 
   @override
   Future<AttendanceModel> checkOut({
-    required int attendanceId,
     required double latitude,
     required double longitude,
     required String ssid,
@@ -64,7 +63,6 @@ class AttendanceRepositoryImpl implements AttendanceRepository {
     final response = await _apiClient.post(
       ApiConstants.checkOut,
       data: {
-        'attendance_id': attendanceId,
         'latitude': latitude,
         'longitude': longitude,
         'ssid': ssid,

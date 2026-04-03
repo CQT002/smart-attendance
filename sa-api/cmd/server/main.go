@@ -62,11 +62,11 @@ func main() {
 	}
 	slog.Info("database migrations completed")
 
-	// ── 4. Connect Redis ──
+	// ── 4. Connect Redis (graceful degradation nếu không kết nối được) ──
 	redisCache, err := cache.NewRedisCache(&cfg.Redis)
 	if err != nil {
-		slog.Error("redis connection failed", "error", err)
-		os.Exit(1)
+		slog.Warn("redis connection failed, using no-op cache (rate limiting and caching disabled)", "error", err)
+		redisCache = cache.NewNoOpCache()
 	}
 
 	// ── 5. Init Repositories ──

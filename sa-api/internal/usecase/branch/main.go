@@ -3,6 +3,7 @@ package branch
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/hdbank/smart-attendance/internal/domain/entity"
@@ -24,7 +25,7 @@ func NewBranchUsecase(branchRepo repository.BranchRepository, gpsConfigRepo repo
 
 func (u *branchUsecase) Create(ctx context.Context, req usecase.CreateBranchRequest) (*entity.Branch, error) {
 	branch := &entity.Branch{
-		Code:     req.Code,
+		Code:     strings.ToUpper(req.Code),
 		Name:     req.Name,
 		Address:  req.Address,
 		City:     req.City,

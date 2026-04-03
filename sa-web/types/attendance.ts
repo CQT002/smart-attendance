@@ -65,6 +65,7 @@ export interface AttendanceFilter {
   branch_id?: number;
   department?: string;
   status?: AttendanceStatus;
+  search?: string;
   date_from?: string;
   date_to?: string;
   page?: number;
