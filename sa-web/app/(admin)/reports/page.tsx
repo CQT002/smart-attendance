@@ -247,7 +247,7 @@ export default function ReportsPage() {
                         <TableHead>Chi nhánh</TableHead>
                         <TableHead>Ngày công</TableHead>
                         <TableHead>Đúng giờ</TableHead>
-                        <TableHead>Đi trễ</TableHead>
+                        <TableHead>Đi trễ - Về sớm</TableHead>
                         <TableHead>Vắng</TableHead>
                         <TableHead>Giờ làm</TableHead>
                         <TableHead>Chuyên cần</TableHead>
@@ -309,7 +309,7 @@ export default function ReportsPage() {
                       <TableHead>Chi nhánh</TableHead>
                       <TableHead>Ngày công</TableHead>
                       <TableHead>Có mặt</TableHead>
-                      <TableHead>Đi trễ</TableHead>
+                      <TableHead>Đi trễ - Về sớm</TableHead>
                       <TableHead>Vắng</TableHead>
                       <TableHead>Giờ làm</TableHead>
                       <TableHead>Chuyên cần</TableHead>

@@ -176,23 +176,27 @@ class _HomeTabState extends State<_HomeTab> {
             children: [
               Text(
                 _getGreeting(),
-                style: theme.textTheme.bodyMedium?.copyWith(
+                style: theme.textTheme.bodyLarge?.copyWith(
                   color: AppColors.textSecondary,
+                  fontSize: 15,
                 ),
               ),
-              const SizedBox(height: 2),
+              const SizedBox(height: 4),
               Text(
                 (user?.name ?? 'Nhân viên').toUpperCase(),
-                style: theme.textTheme.titleMedium?.copyWith(
-                  color: AppColors.primary,
-                  fontWeight: FontWeight.bold,
+                style: theme.textTheme.titleLarge?.copyWith(
+                  color: AppColors.textPrimary,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 20,
                 ),
               ),
               const SizedBox(height: 4),
               Text(
                 user?.branch?.name ?? 'Chi nhánh',
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: AppColors.textSecondary,
+                style: theme.textTheme.bodyLarge?.copyWith(
+                  color: AppColors.primary,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 14,
                 ),
               ),
             ],
@@ -540,17 +544,28 @@ class _ProfileTab extends StatelessWidget {
             child: Column(
               children: [
                 const SizedBox(height: 20),
-                // Avatar
-                CircleAvatar(
-                  radius: 50,
-                  backgroundColor: AppColors.primary.withOpacity(0.1),
-                  child: Text(
-                    user?.name.isNotEmpty == true
-                        ? user!.name[0].toUpperCase()
-                        : '?',
-                    style: theme.textTheme.headlineLarge?.copyWith(
-                      color: AppColors.primary,
-                      fontWeight: FontWeight.bold,
+                // Avatar with gradient ring
+                Container(
+                  padding: const EdgeInsets.all(4),
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: LinearGradient(
+                      colors: [AppColors.primary, AppColors.primaryLight],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                  ),
+                  child: CircleAvatar(
+                    radius: 48,
+                    backgroundColor: Colors.white,
+                    child: Text(
+                      user?.name.isNotEmpty == true
+                          ? user!.name[0].toUpperCase()
+                          : '?',
+                      style: theme.textTheme.headlineLarge?.copyWith(
+                        color: AppColors.primary,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                   ),
                 ),
@@ -558,24 +573,34 @@ class _ProfileTab extends StatelessWidget {
                 Text(
                   user?.name ?? '',
                   style: theme.textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.bold,
+                    fontWeight: FontWeight.w800,
+                    color: AppColors.primaryDark,
+                    fontSize: 22,
                   ),
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  user?.position ?? '',
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: AppColors.textSecondary,
+                const SizedBox(height: 6),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    user?.position ?? '',
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: AppColors.primary,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ),
-                const SizedBox(height: 32),
+                const SizedBox(height: 28),
 
                 // Info cards
-                _buildInfoItem(context, Icons.badge_outlined, 'Mã NV', user?.employeeCode ?? ''),
-                _buildInfoItem(context, Icons.email_outlined, 'Email', user?.email ?? ''),
-                _buildInfoItem(context, Icons.phone_outlined, 'SĐT', user?.phone ?? ''),
-                _buildInfoItem(context, Icons.business_outlined, 'Chi nhánh', user?.branch?.name ?? ''),
-                _buildInfoItem(context, Icons.apartment_outlined, 'Phòng ban', user?.department ?? ''),
+                _buildInfoItem(context, Icons.badge_outlined, 'Mã NV', user?.employeeCode ?? '', AppColors.secondary),
+                _buildInfoItem(context, Icons.email_outlined, 'Email', user?.email ?? '', AppColors.info),
+                _buildInfoItem(context, Icons.phone_outlined, 'SĐT', user?.phone ?? '', AppColors.success),
+                _buildInfoItem(context, Icons.business_outlined, 'Chi nhánh', user?.branch?.name ?? '', AppColors.primary),
+                _buildInfoItem(context, Icons.apartment_outlined, 'Phòng ban', user?.department ?? '', AppColors.statusHalfDay),
                 const SizedBox(height: 32),
 
                 // Logout button
@@ -627,27 +652,54 @@ class _ProfileTab extends StatelessWidget {
     IconData icon,
     String label,
     String value,
+    Color iconColor,
   ) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
       child: Row(
         children: [
-          Icon(icon, size: 22, color: AppColors.textSecondary),
-          const SizedBox(width: 12),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                label,
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: AppColors.textSecondary,
-                    ),
-              ),
-              Text(
-                value.isEmpty ? '---' : value,
-                style: Theme.of(context).textTheme.bodyLarge,
-              ),
-            ],
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: iconColor.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(icon, size: 22, color: iconColor),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: AppColors.textSecondary,
+                        fontSize: 12,
+                      ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  value.isEmpty ? '---' : value,
+                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.textPrimary,
+                      ),
+                ),
+              ],
+            ),
           ),
         ],
       ),

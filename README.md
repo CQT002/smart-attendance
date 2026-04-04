@@ -618,171 +618,149 @@ Hệ thống hiện tại đã đáp ứng Core Flow xuất sắc cho việc đi
 | Flutter | ≥ 3.16 | Build mobile app (Employee App) |
 | PostgreSQL | ≥ 16 | Primary database |
 | Redis | ≥ 7 | Cache + rate limiting |
-| Docker & Docker Compose | ≥ 24 | Container orchestration |
+| Docker & Docker Compose | ≥ 24 | Chạy PostgreSQL & Redis dễ dàng |
 
 ---
 
-### Cách 1 — Docker Compose (Khuyến nghị)
+### Cách 1 — Docker Compose cho Infrastructure + chạy thủ công (Khuyến nghị cho Development)
 
-Chạy toàn bộ hệ thống với một lệnh:
+#### LẦN ĐẦU TIÊN
 
 ```bash
 # 1. Clone repository
 git clone https://github.com/hdbank/smart-attendance.git
 cd smart-attendance
 
-# 2. Copy và chỉnh sửa environment
-cp sa-api/config/config.yaml.example sa-api/config/config.yaml
-# Chỉnh sửa JWT_SECRET và các thông tin cần thiết
+# 2. Khởi động PostgreSQL + Redis bằng Docker
+cd sa-api
+docker compose up -d postgres redis
 
-# 3. Build và khởi động tất cả services
-docker compose up -d --build
-
-# 4. Kiểm tra trạng thái
+# Chờ services healthy (~5 giây)
 docker compose ps
-
 # Kết quả mong đợi:
-# NAME         STATUS    PORTS
-# postgres     running   0.0.0.0:5432->5432/tcp
-# redis        running   0.0.0.0:6379->6379/tcp
-# sa-api       running   0.0.0.0:8080->8080/tcp
-# sa-web       running   0.0.0.0:3000->3000/tcp
+# NAME           STATUS    PORTS
+# sa_postgres    running   0.0.0.0:5432->5432/tcp
+# sa_redis       running   0.0.0.0:16379->6379/tcp
+
+# 3. Cấu hình Backend
+# File config/config.yaml đã có sẵn giá trị dev-safe, chỉ cần chỉnh nếu thay đổi password
+# Hoặc dùng .env: cp .env.example .env rồi chỉnh sửa
+
+# 4. Khởi động Backend (tự động: tạo DB + migration + seed data)
+make run
+
+# Lần đầu tiên, server sẽ tự động:
+#   - Tạo database "smart_attendance" nếu chưa tồn tại
+#   - Chạy migration tạo bảng
+#   - Seed dữ liệu test: 100 chi nhánh, ~5000 nhân viên
+#
+# Logs mong đợi:
+#   level=INFO msg="ensure database: created successfully" database=smart_attendance
+#   level=INFO msg="database connected" host=localhost db=smart_attendance
+#   level=INFO msg="database migrations completed"
+#   level=INFO msg="seeder: running seed_data.sql..."
+#   level=INFO msg="seeder: seed_data.sql completed"
+#   level=INFO msg="seeder: running gen_bulk_data.sql..."
+#   level=INFO msg="seeder: gen_bulk_data.sql completed"
+#   level=INFO msg="server listening" addr=:8080
 
 # 5. Kiểm tra API
 curl http://localhost:8080/health
-# → {"status":"ok","version":"1.0.0"}
+# → {"status":"ok","service":"smart-attendance"}
+
+# 6. Khởi động Frontend (Admin Portal)
+cd ../sa-web
+npm install
+npm run dev
+# Truy cập: http://localhost:3000
+
+# 7. Khởi động Mobile App
+cd ../sa-mb
+flutter pub get
+flutter run
+```
+
+#### CÁC LẦN SAU
+
+```bash
+# 1. Khởi động PostgreSQL + Redis (nếu chưa chạy)
+cd sa-api
+docker compose up -d postgres redis
+
+# 2. Chạy Backend
+make run
+# Database đã có data → seeder tự động bỏ qua
+
+# 3. Chạy Frontend (terminal khác)
+cd sa-web
+npm run dev
+
+# 4. Chạy Mobile App (terminal khác)
+cd sa-mb
+flutter run
 ```
 
 **Truy cập:**
 - Admin Portal: http://localhost:3000
 - API: http://localhost:8080
 - Tài khoản mặc định: `admin@hdbank.com.vn` / `Admin@123`
+- Tài khoản nhân viên test: `nva@hdbank.com.vn` / `Password@123`
+
+> **Lưu ý port Redis:** Docker compose map port `16379:6379` để tránh conflict với Redis local.
+> Nếu dùng Redis từ Docker, cần đổi `redis.port` trong `config.yaml` thành `"16379"`.
+> Nếu đã có Redis local trên port `6379`, không cần thay đổi gì.
 
 ---
 
-### Cách 2 — Chạy thủ công (Development)
+### Cách 2 — Không dùng Docker (cài PostgreSQL & Redis thủ công)
 
-#### Bước 1 — Chuẩn bị Database
-
-```bash
-# Tạo PostgreSQL database
-psql -U postgres -c "CREATE DATABASE smart_attendance;"
-
-# Migration sẽ tự động chạy khi server start (gormigrate).
-# Hoặc chạy thủ công trước:
-cd sa-api && go run ./cmd/migration -cmd up
-```
-
-#### Bước 2 — Cấu hình Backend
+#### LẦN ĐẦU TIÊN
 
 ```bash
+# 1. Đảm bảo PostgreSQL và Redis đã chạy trên máy
+
+# 2. Cấu hình Backend
 cd sa-api
+# Chỉnh config/config.yaml cho đúng thông tin DB + Redis của bạn
 
-# Copy config
-cp config/config.yaml.example config/config.yaml
+# 3. Khởi động Backend (tự động tạo DB + migration + seed)
+make run
 
-# Chỉnh sửa config/config.yaml
-# database.host, database.password, redis.password, jwt.secret
-```
-
-```yaml
-# config/config.yaml (development)
-app:
-  name: SmartAttendance
-  port: "8080"
-  env: development
-  debug: true
-
-database:
-  host: localhost
-  port: "5432"
-  name: smart_attendance
-  user: postgres
-  password: your_password      # ← Thay đổi
-  max_open_conns: 25
-  max_idle_conns: 10
-  conn_max_lifetime: 300
-
-redis:
-  host: localhost
-  port: "6379"
-  password: ""                 # ← Thay đổi nếu Redis có password
-  pool_size: 10
-
-jwt:
-  secret: "change-me-32chars-minimum" # ← BẮT BUỘC thay đổi
-  expire_hours: 24
-  refresh_expire_days: 7
-```
-
-#### Bước 3 — Khởi động Backend
-
-```bash
-cd sa-api
-
-# Tải dependencies
-go mod download
-
-# Chạy development (hot reload với Air)
-go install github.com/air-verse/air@latest
-air
-
-# Hoặc chạy trực tiếp
-go run ./cmd/server
-
-# Kiểm tra
-curl http://localhost:8080/health
-# → {"status":"ok"}
-```
-
-Logs mong đợi:
-```
-level=INFO msg="database connected" host=localhost db=smart_attendance
-level=INFO msg="running database migrations..."
-level=INFO msg="database migrations completed"
-level=INFO msg="redis connected" host=localhost
-level=INFO msg="server listening" addr=:8080
-```
-
-#### Bước 4 — Khởi động Frontend
-
-```bash
-cd sa-web
-
-# Tải dependencies
+# 4. Khởi động Frontend
+cd ../sa-web
 npm install
-
-# Copy và cấu hình environment
-cp .env.local.example .env.local
-# NEXT_PUBLIC_API_URL=http://localhost:8080/api/v1
-
-# Khởi động development server
 npm run dev
 
-# Truy cập: http://localhost:3000
-```
-
-#### Bước 5 — Khởi động Mobile App
-
-```bash
-cd sa-mb
-
-# Sinh platform folders (chỉ lần đầu)
-flutter create .
-
-# Cài dependencies
+# 5. Khởi động Mobile App
+cd ../sa-mb
 flutter pub get
-
-# Chạy trên emulator/simulator
 flutter run
 ```
 
-> Cấu hình API URL tại `lib/core/constants/api_constants.dart`:
-> - Android Emulator: `http://10.0.2.2:8080`
-> - iOS Simulator: `http://localhost:8080`
-> - Thiết bị thật: `http://<IP-LAN>:8080`
+#### CÁC LẦN SAU
 
-#### Bước 6 — Xác nhận hệ thống hoạt động
+```bash
+# Chỉ cần chạy từng service
+cd sa-api && make run          # Backend
+cd sa-web && npm run dev       # Frontend
+cd sa-mb && flutter run        # Mobile
+```
+
+---
+
+### Cấu hình API URL cho Mobile App
+
+Cấu hình tại `sa-mb/lib/core/constants/api_constants.dart`:
+
+| Thiết bị | URL |
+|---|---|
+| Android Emulator | `http://10.0.2.2:8080` |
+| iOS Simulator | `http://localhost:8080` |
+| Thiết bị thật | `http://<IP-LAN>:8080` |
+
+---
+
+### Xác nhận hệ thống hoạt động
 
 ```bash
 # Test Login API
@@ -799,11 +777,21 @@ curl -X POST http://localhost:8080/api/v1/admin/auth/login \
 #     "user": {"id":1,"name":"System Administrator","role":"admin",...}
 #   }
 # }
-
-# Test Admin Dashboard (dùng token vừa lấy)
-curl http://localhost:8080/api/v1/admin/reports/dashboard \
-  -H "Authorization: Bearer eyJhbGci..."
 ```
+
+---
+
+### Tài khoản test mặc định
+
+| Email | Password | Role | Ghi chú |
+|---|---|---|---|
+| `admin@hdbank.com.vn` | `Admin@123` | admin | Quản trị toàn hệ thống |
+| `nva@hdbank.com.vn` | `Admin@123` | manager | Quản lý chi nhánh HCM001 |
+| `tvb@hdbank.com.vn` | `Admin@123` | employee | Nhân viên chi nhánh HCM001 |
+| `lvc@hdbank.com.vn` | `Admin@123` | employee | Developer chi nhánh HCM001 |
+| `vvd@hdbank.com.vn` | `Admin@123` | employee | Developer chi nhánh HCM001 |
+| `manager_cn*@hdbank.com.vn` | `Password@123` | manager | 99 managers (gen_bulk_data) |
+| `employee_*@hdbank.com.vn` | `Password@123` | employee | ~4896 employees (gen_bulk_data) |
 
 ---
 
@@ -811,28 +799,15 @@ curl http://localhost:8080/api/v1/admin/reports/dashboard \
 
 Trước khi deploy production, kiểm tra các mục sau:
 
-```bash
-# ✅ Bảo mật
+```
 [ ] JWT_SECRET tối thiểu 32 ký tự ngẫu nhiên
 [ ] DATABASE_PASSWORD mạnh, không phải "postgres"
 [ ] config.yaml không chứa secret thật (dùng env vars)
 [ ] SSL/TLS được bật cho PostgreSQL (sslmode=require)
 [ ] CORS origin được giới hạn (không dùng *)
-
-# ✅ Database
-[ ] Chạy migration trên production DB
-[ ] Đã tạo đầy đủ indexes (kiểm tra bằng \d table_name)
-[ ] Backup strategy đã được thiết lập
-
-# ✅ Hiệu năng
 [ ] max_open_conns phù hợp với số lượng users
 [ ] Redis maxmemory được set (ví dụ: 512mb)
-[ ] Rate limit thresholds phù hợp với traffic thực tế
-
-# ✅ Monitoring
-[ ] Health check endpoint /health được expose
 [ ] Log level = INFO (không debug) trên production
-[ ] Alert cho error rate > 1%
 ```
 
 ---
@@ -853,4 +828,4 @@ Trước khi deploy production, kiểm tra các mục sau:
 
 ---
 
-*Cập nhật lần cuối: 2026-03-30*
+*Cập nhật lần cuối: 2026-04-04*

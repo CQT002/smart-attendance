@@ -48,6 +48,9 @@ func main() {
 	)
 
 	// ── 3. Connect Database ──
+	// Tự động tạo database nếu chưa tồn tại (user mới chỉ cần make run)
+	database.EnsureDatabase(&cfg.Database)
+
 	db, err := database.NewPostgres(&cfg.Database)
 	if err != nil {
 		slog.Error("database connection failed", "error", err)
@@ -61,6 +64,14 @@ func main() {
 		os.Exit(1)
 	}
 	slog.Info("database migrations completed")
+
+	// Chạy seeder — chỉ seed nếu database chưa có dữ liệu (lần build đầu tiên)
+	if err := database.RunSeeder(db); err != nil {
+		slog.Error("database seeding failed", "error", err)
+		os.Exit(1)
+	}
+
+
 
 	// ── 4. Connect Redis (graceful degradation nếu không kết nối được) ──
 	redisCache, err := cache.NewRedisCache(&cfg.Redis)
