@@ -1,52 +1,67 @@
-.PHONY: run-web stop-web run-mobile stop-mobile help
+.PHONY: run-api stop-api run-web stop-web run-mobile stop-mobile run-all stop-all help
+
+DEVICE ?=
 
 # ============================================================
-# sa-api + sa-web (Backend API + Admin Portal)
+# sa-api (Backend API)
 # ============================================================
 
-run-web:
-	@echo "Starting sa-api (Go) + sa-web (Next.js)..."
-	@cd sa-api && docker-compose up -d postgres redis
-	@echo "Waiting for PostgreSQL & Redis..."
-	@sleep 3
-	@cd sa-api && go run ./cmd/server &
+run-api:
+	@if pgrep -f "go-build.*server" > /dev/null 2>&1; then \
+		echo "sa-api is already running, skipping..."; \
+	else \
+		echo "Starting sa-api (Go)..."; \
+		cd sa-api && docker-compose up -d postgres redis; \
+		echo "Waiting for PostgreSQL & Redis..."; \
+		sleep 3; \
+		cd sa-api && go run ./cmd/server & \
+		echo "==> sa-api running at http://localhost:8080"; \
+	fi
+
+stop-api:
+	@echo "Stopping sa-api..."
+	@-pkill -f "go run ./cmd/server" 2>/dev/null
+	@-pkill -f "go-build.*server" 2>/dev/null
+	@cd sa-api && docker-compose down
+	@echo "sa-api stopped."
+
+# ============================================================
+# sa-web (Admin Portal) — depends on sa-api
+# ============================================================
+
+run-web: run-api
+	@echo "Starting sa-web (Next.js)..."
 	@cd sa-web && npm run dev &
-	@echo ""
-	@echo "==> sa-api running at http://localhost:8080"
 	@echo "==> sa-web running at http://localhost:3000"
 
 stop-web:
-	@echo "Stopping sa-api + sa-web..."
-	@-pkill -f "go run ./cmd/server" 2>/dev/null
-	@-pkill -f "go-build.*server" 2>/dev/null
+	@echo "Stopping sa-web..."
 	@-pkill -f "next dev" 2>/dev/null
 	@-pkill -f "next-server" 2>/dev/null
-	@cd sa-api && docker-compose down
-	@echo "All stopped."
+	@echo "sa-web stopped."
 
 # ============================================================
-# sa-api + sa-mb (Backend API + Mobile App)
+# sa-mb (Mobile App) — depends on sa-api
 # ============================================================
 
-run-mobile:
-	@echo "Starting sa-api (Go) + sa-mb (Flutter)..."
-	@cd sa-api && docker-compose up -d postgres redis
-	@echo "Waiting for PostgreSQL & Redis..."
-	@sleep 3
-	@cd sa-api && go run ./cmd/server &
-	@cd sa-mb && flutter run -d macos &
-	@echo ""
-	@echo "==> sa-api running at http://localhost:8080"
+run-mobile: run-api
+	@echo "Starting sa-mb (Flutter)..."
+	@cd sa-mb && flutter run $(if $(DEVICE),-d $(DEVICE),) &
 	@echo "==> sa-mb running on connected device/emulator"
 
 stop-mobile:
-	@echo "Stopping sa-api + sa-mb..."
-	@-pkill -f "go run ./cmd/server" 2>/dev/null
-	@-pkill -f "go-build.*server" 2>/dev/null
+	@echo "Stopping sa-mb..."
 	@-pkill -f "flutter run" 2>/dev/null
 	@-pkill -f "flutter_tools" 2>/dev/null
-	@cd sa-api && docker-compose down
-	@echo "All stopped."
+	@echo "sa-mb stopped."
+
+# ============================================================
+# Run / Stop all
+# ============================================================
+
+run-all: run-api run-web run-mobile
+
+stop-all: stop-web stop-mobile stop-api
 
 # ============================================================
 # Help
@@ -54,7 +69,14 @@ stop-mobile:
 
 help:
 	@echo "Usage:"
-	@echo "  make run-web      - Start sa-api + sa-web"
-	@echo "  make stop-web     - Stop sa-api + sa-web"
-	@echo "  make run-mobile   - Start sa-api + sa-mb"
-	@echo "  make stop-mobile  - Stop sa-api + sa-mb"
+	@echo "  make run-api        - Start sa-api only"
+	@echo "  make stop-api       - Stop sa-api + Docker services"
+	@echo "  make run-web        - Start sa-api + sa-web"
+	@echo "  make stop-web       - Stop sa-web only"
+	@echo "  make run-mobile     - Start sa-api + sa-mb (auto-detect device)"
+	@echo "  make stop-mobile    - Stop sa-mb only"
+	@echo "  make run-all        - Start everything"
+	@echo "  make stop-all       - Stop everything"
+	@echo ""
+	@echo "Options:"
+	@echo "  DEVICE=<id>         - Specify Flutter device (e.g. make run-mobile DEVICE=chrome)"

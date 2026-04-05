@@ -748,6 +748,54 @@ cd sa-mb && flutter run        # Mobile
 
 ---
 
+### Cách 3 — Dùng Makefile (Nhanh nhất)
+
+Makefile ở thư mục gốc cung cấp shortcut để khởi động / dừng các service mà không cần mở nhiều terminal.
+
+```bash
+# Chạy Backend + Admin Portal
+make run-web
+# → sa-api tự start (Docker + Go), sa-web tự start (Next.js)
+# → http://localhost:8080 (API) + http://localhost:3000 (Web)
+
+# Chạy Backend + Mobile App
+make run-mobile
+# → sa-api tự start (nếu chưa chạy), Flutter tự detect device
+# → http://localhost:8080 (API) + app trên device/emulator
+
+# Chọn device cụ thể cho Flutter
+make run-mobile DEVICE=chrome        # chạy trên Chrome
+make run-mobile DEVICE=macos         # chạy trên macOS
+make run-mobile DEVICE=<device-id>   # chạy trên device/emulator cụ thể
+
+# Chạy tất cả (Backend + Web + Mobile)
+make run-all
+
+# Dừng từng phần
+make stop-web       # Dừng sa-web (giữ sa-api)
+make stop-mobile    # Dừng sa-mb (giữ sa-api)
+make stop-api       # Dừng sa-api + Docker services
+
+# Dừng tất cả
+make stop-all
+```
+
+| Lệnh | Mô tả |
+|---|---|
+| `make run-api` | Chỉ start sa-api (Docker + Go server) |
+| `make stop-api` | Dừng sa-api + PostgreSQL + Redis |
+| `make run-web` | Start sa-api + sa-web |
+| `make stop-web` | Dừng sa-web (không tắt sa-api) |
+| `make run-mobile` | Start sa-api + sa-mb (auto-detect device) |
+| `make stop-mobile` | Dừng sa-mb (không tắt sa-api) |
+| `make run-all` | Start tất cả services |
+| `make stop-all` | Dừng tất cả services |
+| `make help` | Xem hướng dẫn |
+
+> **Lưu ý:** `run-web` và `run-mobile` đều depend on `run-api`. Nếu sa-api đã chạy, nó sẽ tự skip không start lại, tránh conflict port.
+
+---
+
 ### Cấu hình API URL cho Mobile App
 
 Cấu hình tại `sa-mb/lib/core/constants/api_constants.dart`:
@@ -828,4 +876,4 @@ Trước khi deploy production, kiểm tra các mục sau:
 
 ---
 
-*Cập nhật lần cuối: 2026-04-04*
+*Cập nhật lần cuối: 2026-04-05*
