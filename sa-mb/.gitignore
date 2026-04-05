@@ -62,7 +62,6 @@ app.*.map.json
 
 # Flutter generated
 .metadata
-pubspec.lock
 
 # Test boilerplate
 /test/

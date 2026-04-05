@@ -25,6 +25,3 @@ npm-debug.log*
 # OS
 .DS_Store
 Thumbs.db
-
-# lock files
-package-lock.json
