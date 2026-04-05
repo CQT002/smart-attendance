@@ -46,7 +46,15 @@ app.*.map.json
 
 # Platform-specific generated directories
 /android/
-/ios/
+/ios/*
+!/ios/Podfile
+!/ios/Podfile.lock
+!/ios/Runner/
+!/ios/Runner.xcodeproj/
+!/ios/Runner.xcworkspace/
+!/ios/Flutter/
+!/ios/.gitignore
+!/ios/RunnerTests/
 /linux/
 /macos/
 /windows/
