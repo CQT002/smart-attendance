@@ -9,10 +9,11 @@ import (
 
 // Config cấu hình toàn bộ ứng dụng
 type Config struct {
-	App      AppConfig      `mapstructure:"app"`
-	Database DatabaseConfig `mapstructure:"database"`
-	Redis    RedisConfig    `mapstructure:"redis"`
-	JWT      JWTConfig      `mapstructure:"jwt"`
+	App        AppConfig        `mapstructure:"app"`
+	Database   DatabaseConfig   `mapstructure:"database"`
+	Redis      RedisConfig      `mapstructure:"redis"`
+	JWT        JWTConfig        `mapstructure:"jwt"`
+	Correction CorrectionConfig `mapstructure:"correction"`
 }
 
 type AppConfig struct {
@@ -47,6 +48,10 @@ type JWTConfig struct {
 	Secret            string `mapstructure:"secret"`
 	ExpireHours       int    `mapstructure:"expire_hours"`
 	RefreshExpireDays int    `mapstructure:"refresh_expire_days"`
+}
+
+type CorrectionConfig struct {
+	MaxPerMonth int `mapstructure:"max_per_month"` // Hạn mức bù công tối đa mỗi tháng (tính theo credit)
 }
 
 // Load đọc cấu hình từ config.yaml, sau đó override bằng biến môi trường nếu có

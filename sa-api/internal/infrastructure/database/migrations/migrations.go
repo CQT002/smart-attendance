@@ -121,7 +121,21 @@ func GetMigrations() []*gormigrate.Migration {
 				return nil
 			},
 		},
-		// ── 004: Remove latitude/longitude from branches (moved to gps_configs) ──
+		// ── 004: Tạo bảng attendance_corrections — Chấm công bù ──
+		{
+			ID: "20250330000004",
+			Migrate: func(tx *gorm.DB) error {
+				type AttendanceCorrection struct {
+					entity.AttendanceCorrection
+				}
+				return tx.AutoMigrate(&AttendanceCorrection{})
+			},
+			Rollback: func(tx *gorm.DB) error {
+				return tx.Migrator().DropTable("attendance_corrections")
+			},
+		},
+
+		// ── 005: Remove latitude/longitude from branches (moved to gps_configs) ──
 		{
 			ID: "20250331000001",
 			Migrate: func(tx *gorm.DB) error {
@@ -147,6 +161,17 @@ func GetMigrations() []*gormigrate.Migration {
 					}
 				}
 				return nil
+			},
+		},
+
+		// ── 006: Thêm credit_count vào attendance_corrections ──
+		{
+			ID: "20250406000001",
+			Migrate: func(tx *gorm.DB) error {
+				return tx.Exec(`ALTER TABLE attendance_corrections ADD COLUMN IF NOT EXISTS credit_count INTEGER NOT NULL DEFAULT 1`).Error
+			},
+			Rollback: func(tx *gorm.DB) error {
+				return tx.Exec(`ALTER TABLE attendance_corrections DROP COLUMN IF EXISTS credit_count`).Error
 			},
 		},
 	}

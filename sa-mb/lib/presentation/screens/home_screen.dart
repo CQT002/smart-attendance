@@ -15,6 +15,7 @@ import '../blocs/auth/auth_state.dart';
 import '../widgets/app_toast.dart';
 import 'history_screen.dart';
 import 'check_in_screen.dart';
+import 'correction_approval_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -32,39 +33,60 @@ class _HomeScreenState extends State<HomeScreen> {
     context.read<AttendanceBloc>().add(AttendanceLoadToday());
   }
 
+  bool _isManager(BuildContext context) {
+    final authState = context.watch<AuthBloc>().state;
+    if (authState is AuthAuthenticated) {
+      return authState.user.isManager || authState.user.isAdmin;
+    }
+    return false;
+  }
+
   @override
   Widget build(BuildContext context) {
+    final isManager = _isManager(context);
+
+    final tabs = <Widget>[
+      const _HomeTab(),
+      const HistoryScreen(),
+      if (isManager) const CorrectionApprovalScreen(),
+      const _ProfileTab(),
+    ];
+
+    final destinations = <NavigationDestination>[
+      const NavigationDestination(
+        icon: Icon(Icons.home_outlined),
+        selectedIcon: Icon(Icons.home),
+        label: 'Trang chủ',
+      ),
+      const NavigationDestination(
+        icon: Icon(Icons.history_outlined),
+        selectedIcon: Icon(Icons.history),
+        label: 'Lịch sử',
+      ),
+      if (isManager)
+        const NavigationDestination(
+          icon: Icon(Icons.approval_outlined),
+          selectedIcon: Icon(Icons.approval),
+          label: 'Duyệt bù công',
+        ),
+      const NavigationDestination(
+        icon: Icon(Icons.person_outlined),
+        selectedIcon: Icon(Icons.person),
+        label: 'Cá nhân',
+      ),
+    ];
+
     return Scaffold(
       body: IndexedStack(
         index: _currentIndex,
-        children: const [
-          _HomeTab(),
-          HistoryScreen(),
-          _ProfileTab(),
-        ],
+        children: tabs,
       ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _currentIndex,
         onDestinationSelected: (index) {
           setState(() => _currentIndex = index);
         },
-        destinations: const [
-          NavigationDestination(
-            icon: Icon(Icons.home_outlined),
-            selectedIcon: Icon(Icons.home),
-            label: 'Trang chủ',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.history_outlined),
-            selectedIcon: Icon(Icons.history),
-            label: 'Lịch sử',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.person_outlined),
-            selectedIcon: Icon(Icons.person),
-            label: 'Cá nhân',
-          ),
-        ],
+        destinations: destinations,
       ),
     );
   }

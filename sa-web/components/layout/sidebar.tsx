@@ -7,6 +7,7 @@ import {
   Building2,
   Users,
   ClipboardList,
+  ClipboardCheck,
   BarChart3,
   LogOut,
   ChevronLeft,
@@ -22,6 +23,7 @@ const navItems = [
   { href: "/branches", label: "Chi nhánh", icon: Building2 },
   { href: "/users", label: "Nhân viên", icon: Users },
   { href: "/attendance", label: "Chấm công", icon: ClipboardList },
+  { href: "/corrections", label: "Duyệt bù công", icon: ClipboardCheck },
   { href: "/reports", label: "Báo cáo", icon: BarChart3 },
 ];
 

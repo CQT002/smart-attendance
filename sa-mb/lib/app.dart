@@ -4,16 +4,19 @@ import 'core/network/api_client.dart';
 import 'core/theme/app_theme.dart';
 import 'data/repositories/auth_repository_impl.dart';
 import 'data/repositories/attendance_repository_impl.dart';
+import 'data/repositories/correction_repository_impl.dart';
 import 'data/services/device_service.dart';
 import 'data/services/location_service.dart';
 import 'data/services/security_service.dart';
 import 'data/services/wifi_service.dart';
 import 'domain/repositories/auth_repository.dart';
 import 'domain/repositories/attendance_repository.dart';
+import 'domain/repositories/correction_repository.dart';
 import 'presentation/blocs/auth/auth_bloc.dart';
 import 'presentation/blocs/auth/auth_event.dart';
 import 'presentation/blocs/auth/auth_state.dart';
 import 'presentation/blocs/attendance/attendance_bloc.dart';
+import 'presentation/blocs/correction/correction_bloc.dart';
 import 'presentation/screens/login_screen.dart';
 import 'presentation/screens/home_screen.dart';
 
@@ -28,6 +31,7 @@ class _SmartAttendanceAppState extends State<SmartAttendanceApp> {
   late final ApiClient _apiClient;
   late final AuthRepository _authRepository;
   late final AttendanceRepository _attendanceRepository;
+  late final CorrectionRepository _correctionRepository;
   late final LocationService _locationService;
   late final WifiService _wifiService;
   late final DeviceService _deviceService;
@@ -39,6 +43,7 @@ class _SmartAttendanceAppState extends State<SmartAttendanceApp> {
     _apiClient = ApiClient();
     _authRepository = AuthRepositoryImpl(_apiClient);
     _attendanceRepository = AttendanceRepositoryImpl(_apiClient);
+    _correctionRepository = CorrectionRepositoryImpl(_apiClient);
     _locationService = LocationService();
     _wifiService = WifiService();
     _deviceService = DeviceService();
@@ -60,6 +65,7 @@ class _SmartAttendanceAppState extends State<SmartAttendanceApp> {
               return MultiBlocProvider(
                 providers: [
                   RepositoryProvider.value(value: _attendanceRepository),
+                  RepositoryProvider.value(value: _correctionRepository),
                   BlocProvider(
                     create: (_) => AttendanceBloc(
                       attendanceRepository: _attendanceRepository,
@@ -68,6 +74,11 @@ class _SmartAttendanceAppState extends State<SmartAttendanceApp> {
                       deviceService: _deviceService,
                       securityService: _securityService,
                       user: state.user,
+                    ),
+                  ),
+                  BlocProvider(
+                    create: (_) => CorrectionBloc(
+                      correctionRepository: _correctionRepository,
                     ),
                   ),
                 ],

@@ -8,6 +8,7 @@ class AppConstants {
   static const String statusPresent = 'present';
   static const String statusLate = 'late';
   static const String statusEarlyLeave = 'early_leave';
+  static const String statusLateEarlyLeave = 'late_early_leave';
   static const String statusAbsent = 'absent';
   static const String statusHalfDay = 'half_day';
 

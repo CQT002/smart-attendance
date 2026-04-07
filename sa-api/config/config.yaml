@@ -27,3 +27,6 @@ jwt:
   secret: "secret"
   expire_hours: 24
   refresh_expire_days: 7
+
+correction:
+  max_per_month: 4            # Hạn mức bù công tối đa mỗi tháng (tính theo credit)

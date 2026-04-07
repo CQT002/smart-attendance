@@ -12,4 +12,10 @@ class ApiConstants {
   static const String checkOut = '$apiPrefix/attendance/check-out';
   static const String todayAttendance = '$apiPrefix/attendance/today';
   static const String attendanceHistory = '$apiPrefix/attendance/history';
+
+  // Corrections (employee)
+  static const String corrections = '$apiPrefix/attendance/corrections';
+
+  // Corrections (manager/admin)
+  static const String adminCorrections = '$apiPrefix/admin/corrections';
 }

@@ -13,6 +13,7 @@ import (
 	"github.com/hdbank/smart-attendance/internal/infrastructure/cache"
 	"github.com/hdbank/smart-attendance/internal/infrastructure/database"
 	"github.com/hdbank/smart-attendance/internal/infrastructure/database/migrations"
+	"github.com/hdbank/smart-attendance/internal/infrastructure/scheduler"
 
 	"github.com/go-gormigrate/gormigrate/v2"
 	applogger "github.com/hdbank/smart-attendance/internal/infrastructure/logger"
@@ -25,6 +26,7 @@ import (
 
 	ucAttendance "github.com/hdbank/smart-attendance/internal/usecase/attendance"
 	ucBranch "github.com/hdbank/smart-attendance/internal/usecase/branch"
+	ucCorrection "github.com/hdbank/smart-attendance/internal/usecase/correction"
 	ucReport "github.com/hdbank/smart-attendance/internal/usecase/report"
 	ucUser "github.com/hdbank/smart-attendance/internal/usecase/user"
 
@@ -87,6 +89,7 @@ func main() {
 	wifiConfigRepo := repository.NewWiFiConfigRepository(db)
 	gpsConfigRepo := repository.NewGPSConfigRepository(db)
 	shiftRepo := repository.NewShiftRepository(db)
+	correctionRepo := repository.NewCorrectionRepository(db)
 
 	// ── 6. Init Usecases ──
 	userUC := ucUser.NewUserUsecase(userRepo, redisCache, cfg.JWT)
@@ -95,20 +98,26 @@ func main() {
 		attendanceRepo, userRepo, wifiConfigRepo, gpsConfigRepo, shiftRepo, redisCache,
 	)
 	reportUC := ucReport.NewReportUsecase(attendanceRepo, userRepo, branchRepo, redisCache)
+	correctionUC := ucCorrection.NewCorrectionUsecase(correctionRepo, attendanceRepo, userRepo, shiftRepo, db, cfg.Correction)
 
 	// ── 7. Init Handlers ──
 	// User app handlers
 	authH := handlerUser.NewAuthHandler(userUC)
 	attendanceH := handlerUser.NewAttendanceHandler(attendanceUC)
+	correctionH := handlerUser.NewCorrectionHandler(correctionUC)
 	// Admin portal handlers
 	adminAuthH := handlerAdmin.NewAdminAuthHandler(userUC)
 	userH := handlerAdmin.NewUserHandler(userUC)
 	branchH := handlerAdmin.NewBranchHandler(branchUC)
 	adminAttendanceH := handlerAdmin.NewAttendanceHandler(attendanceUC)
+	adminCorrectionH := handlerAdmin.NewCorrectionHandler(correctionUC)
 	reportH := handlerAdmin.NewReportHandler(reportUC)
 	wifiConfigH := handlerAdmin.NewWiFiConfigHandler(wifiConfigRepo)
 
-	// ── 8. Setup Echo Router ──
+	// ── 8. Start background schedulers ──
+	scheduler.StartCorrectionAutoReject(correctionUC)
+
+	// ── 9. Setup Echo Router ──
 	e := echo.New()
 	e.HideBanner = true
 	e.HidePort = true
@@ -116,10 +125,12 @@ func main() {
 	server.SetupRouter(e, server.RouterDeps{
 		AuthHandler:            authH,
 		AttendanceHandler:      attendanceH,
+		CorrectionHandler:      correctionH,
 		AdminAuthHandler:       adminAuthH,
 		UserHandler:            userH,
 		BranchHandler:          branchH,
 		AdminAttendanceHandler: adminAttendanceH,
+		AdminCorrectionHandler: adminCorrectionH,
 		ReportHandler:          reportH,
 		WiFiConfigHandler:      wifiConfigH,
 		Cache:                  redisCache,

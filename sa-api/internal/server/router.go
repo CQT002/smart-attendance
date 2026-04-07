@@ -15,13 +15,15 @@ import (
 // RouterDeps chứa tất cả dependencies cần thiết để đăng ký routes
 type RouterDeps struct {
 	// User app handlers
-	AuthHandler       *handlerUser.AuthHandler
-	AttendanceHandler *handlerUser.AttendanceHandler
+	AuthHandler           *handlerUser.AuthHandler
+	AttendanceHandler     *handlerUser.AttendanceHandler
+	CorrectionHandler     *handlerUser.CorrectionHandler
 	// Admin portal handlers
 	AdminAuthHandler       *handlerAdmin.AdminAuthHandler
 	UserHandler            *handlerAdmin.UserHandler
 	BranchHandler          *handlerAdmin.BranchHandler
 	AdminAttendanceHandler *handlerAdmin.AttendanceHandler
+	AdminCorrectionHandler *handlerAdmin.CorrectionHandler
 	ReportHandler          *handlerAdmin.ReportHandler
 	WiFiConfigHandler      *handlerAdmin.WiFiConfigHandler
 
@@ -68,6 +70,12 @@ func SetupRouter(e *echo.Echo, deps RouterDeps) {
 	attend.GET("/today", deps.AttendanceHandler.GetMyToday)
 	attend.GET("/history", deps.AttendanceHandler.GetMyHistory)
 
+	// ── Employee correction routes (chấm công bù) ──
+	corrections := protected.Group("/attendance/corrections")
+	corrections.POST("", deps.CorrectionHandler.Create)
+	corrections.GET("", deps.CorrectionHandler.GetMyList)
+	corrections.GET("/:id", deps.CorrectionHandler.GetByID)
+
 	// ── Admin portal routes ──
 	// Admin auth — login không cần JWT, me/change-password cần JWT
 	adminAuth := api.Group("/admin/auth")
@@ -88,6 +96,12 @@ func SetupRouter(e *echo.Echo, deps RouterDeps) {
 	adminAttend.GET("", deps.AdminAttendanceHandler.GetList)
 	adminAttend.GET("/:id", deps.AdminAttendanceHandler.GetByID)
 	adminAttend.GET("/summary/:user_id", deps.AdminAttendanceHandler.GetSummary)
+
+	// Admin - Correction management (chấm công bù)
+	adminCorrections := adminGroup.Group("/corrections")
+	adminCorrections.GET("", deps.AdminCorrectionHandler.GetList)
+	adminCorrections.GET("/:id", deps.AdminCorrectionHandler.GetByID)
+	adminCorrections.PUT("/:id/process", deps.AdminCorrectionHandler.Process)
 
 	// Admin - User management
 	users := adminGroup.Group("/users")

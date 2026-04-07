@@ -86,6 +86,15 @@ var (
 	ErrSuspiciousActivity  = New(http.StatusForbidden, "SUSPICIOUS_ACTIVITY", "Phát hiện hoạt động bất thường, tài khoản tạm khóa chấm công")
 )
 
+// Correction errors
+var (
+	ErrCorrectionLimitExceeded = New(http.StatusBadRequest, "CORRECTION_LIMIT_EXCEEDED", "Bạn đã sử dụng hết hạn mức chấm công bù trong tháng (tối đa 4 lần)")
+	ErrCorrectionInvalidStatus = New(http.StatusBadRequest, "CORRECTION_INVALID_STATUS", "Chỉ được đăng ký bù công cho ngày đi trễ, về sớm hoặc đi trễ về sớm")
+	ErrCorrectionAlreadyExists = New(http.StatusConflict, "CORRECTION_ALREADY_EXISTS", "Ngày này đã có yêu cầu chấm công bù")
+	ErrCorrectionNotPending    = New(http.StatusBadRequest, "CORRECTION_NOT_PENDING", "Yêu cầu này đã được xử lý, không thể thay đổi")
+	ErrCorrectionSelfApprove   = New(http.StatusForbidden, "CORRECTION_SELF_APPROVE", "Manager không được tự duyệt yêu cầu của chính mình")
+)
+
 // Validation errors
 var (
 	ErrValidation      = New(http.StatusBadRequest, "VALIDATION_ERROR", "Dữ liệu không hợp lệ")
