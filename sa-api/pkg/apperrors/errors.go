@@ -95,6 +95,17 @@ var (
 	ErrCorrectionSelfApprove   = New(http.StatusForbidden, "CORRECTION_SELF_APPROVE", "Manager không được tự duyệt yêu cầu của chính mình")
 )
 
+// Leave errors
+var (
+	ErrLeaveAlreadyExists  = New(http.StatusConflict, "LEAVE_ALREADY_EXISTS", "Ngày này đã có yêu cầu nghỉ phép")
+	ErrLeaveInvalidDate    = New(http.StatusBadRequest, "LEAVE_INVALID_DATE", "Ngày nghỉ phép không hợp lệ")
+	ErrLeaveInvalidType    = New(http.StatusBadRequest, "LEAVE_INVALID_TYPE", "Loại nghỉ phép không hợp lệ cho ngày này")
+	ErrLeaveNotPending     = New(http.StatusBadRequest, "LEAVE_NOT_PENDING", "Yêu cầu này đã được xử lý, không thể thay đổi")
+	ErrLeaveSelfApprove    = New(http.StatusForbidden, "LEAVE_SELF_APPROVE", "Manager không được tự duyệt yêu cầu của chính mình")
+	ErrLeaveInvalidStatus  = New(http.StatusBadRequest, "LEAVE_INVALID_STATUS", "Trạng thái ngày không cho phép xin nghỉ phép")
+	ErrLeaveInsufficientBalance = New(http.StatusBadRequest, "LEAVE_INSUFFICIENT_BALANCE", "Số ngày phép không đủ")
+)
+
 // Validation errors
 var (
 	ErrValidation      = New(http.StatusBadRequest, "VALIDATION_ERROR", "Dữ liệu không hợp lệ")

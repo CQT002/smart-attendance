@@ -34,4 +34,11 @@ export const correctionService = {
     );
     return res.data.data!;
   },
+
+  async batchApprove(): Promise<{ approved_count: number }> {
+    const res = await apiClient.post<ApiResponse<{ approved_count: number }>>(
+      `/admin/corrections/batch-approve`
+    );
+    return res.data.data!;
+  },
 };

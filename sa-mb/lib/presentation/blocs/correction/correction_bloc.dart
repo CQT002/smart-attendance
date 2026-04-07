@@ -15,6 +15,7 @@ class CorrectionBloc extends Bloc<CorrectionEvent, CorrectionState> {
     on<CorrectionLoadAdminList>(_onLoadAdminList);
     on<CorrectionApproveRequested>(_onApproveRequested);
     on<CorrectionRejectRequested>(_onRejectRequested);
+    on<CorrectionBatchApproveRequested>(_onBatchApproveRequested);
   }
 
   Future<void> _onCreateRequested(
@@ -92,6 +93,19 @@ class CorrectionBloc extends Bloc<CorrectionEvent, CorrectionState> {
         managerNote: event.managerNote,
       );
       emit(CorrectionProcessSuccess(correction, 'Đã từ chối yêu cầu bù công'));
+    } catch (e) {
+      emit(CorrectionFailure(_extractMessage(e)));
+    }
+  }
+
+  Future<void> _onBatchApproveRequested(
+    CorrectionBatchApproveRequested event,
+    Emitter<CorrectionState> emit,
+  ) async {
+    emit(CorrectionLoading());
+    try {
+      final count = await _correctionRepository.batchApprove();
+      emit(CorrectionBatchApproveSuccess(count));
     } catch (e) {
       emit(CorrectionFailure(_extractMessage(e)));
     }

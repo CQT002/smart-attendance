@@ -11,6 +11,8 @@ const STATUS_CONFIG: Record<
   late_early_leave: { label: "Đi trễ - Về sớm", variant: "warning" },
   half_day: { label: "Đi trễ - Về sớm", variant: "warning" },
   absent: { label: "Vắng mặt", variant: "destructive" },
+  leave: { label: "Nghỉ phép", variant: "info" },
+  half_day_leave: { label: "Nghỉ phép nửa ngày", variant: "info" },
 };
 
 export function StatusBadge({ status }: { status: string }) {

@@ -157,3 +157,14 @@ func (r *userRepository) CountByBranch(ctx context.Context, branchID uint) (int6
 		Count(&count).Error
 	return count, err
 }
+
+func (r *userRepository) AccrueLeaveBalance(ctx context.Context, days float64) (int64, error) {
+	result := r.db.WithContext(ctx).
+		Model(&entity.User{}).
+		Where("is_active = true").
+		Update("leave_balance", gorm.Expr("leave_balance + ?", days))
+	if result.Error != nil {
+		return 0, apperrors.Wrap(result.Error, 500, "DB_ERROR", "Lỗi cộng ngày phép hàng tháng")
+	}
+	return result.RowsAffected, nil
+}

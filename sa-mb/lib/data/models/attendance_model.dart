@@ -123,6 +123,10 @@ class AttendanceModel {
         return 'Đi trễ - Về sớm';
       case 'absent':
         return 'Vắng';
+      case 'leave':
+        return 'Nghỉ phép';
+      case 'half_day_leave':
+        return 'Nghỉ phép nửa ngày';
       default:
         return status;
     }

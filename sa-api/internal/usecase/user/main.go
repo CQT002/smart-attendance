@@ -95,6 +95,7 @@ func (u *userUsecase) Create(ctx context.Context, req usecase.CreateUserRequest)
 		Department:   req.Department,
 		Position:     req.Position,
 		IsActive:     true,
+		LeaveBalance: 1,
 	}
 
 	if err := u.userRepo.Create(ctx, user); err != nil {

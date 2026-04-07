@@ -53,6 +53,16 @@ class CorrectionProcessSuccess extends CorrectionState {
   List<Object?> get props => [correction, message];
 }
 
+/// Duyệt hàng loạt thành công
+class CorrectionBatchApproveSuccess extends CorrectionState {
+  final int approvedCount;
+
+  const CorrectionBatchApproveSuccess(this.approvedCount);
+
+  @override
+  List<Object?> get props => [approvedCount];
+}
+
 class CorrectionFailure extends CorrectionState {
   final String message;
 

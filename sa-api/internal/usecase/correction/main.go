@@ -286,6 +286,42 @@ func (u *correctionUsecase) GetMyList(ctx context.Context, userID uint, status e
 	return u.correctionRepo.FindAll(ctx, filter)
 }
 
+// BatchApprove duyệt tất cả yêu cầu PENDING — gọi Process tuần tự cho từng yêu cầu
+func (u *correctionUsecase) BatchApprove(ctx context.Context, processedByID uint, branchID *uint) (int64, error) {
+	filter := repository.CorrectionFilter{
+		BranchID: branchID,
+		Status:   entity.CorrectionStatusPending,
+		Page:     1,
+		Limit:    1000,
+	}
+	corrections, _, err := u.correctionRepo.FindAll(ctx, filter)
+	if err != nil {
+		return 0, err
+	}
+
+	var approved int64
+	for _, c := range corrections {
+		// Bỏ qua yêu cầu của chính mình (self-approve)
+		if c.UserID == processedByID {
+			continue
+		}
+		req := usecase.ProcessCorrectionRequest{
+			CorrectionID:  c.ID,
+			ProcessedByID: processedByID,
+			Status:        entity.CorrectionStatusApproved,
+			ManagerNote:   "Duyệt hàng loạt",
+		}
+		if _, err := u.Process(ctx, req); err != nil {
+			slog.Warn("batch approve correction skipped", "id", c.ID, "error", err)
+			continue
+		}
+		approved++
+	}
+
+	slog.Info("batch approve corrections completed", "approved", approved, "total_pending", len(corrections))
+	return approved, nil
+}
+
 // AutoRejectExpired tự động reject yêu cầu PENDING của tháng trước
 func (u *correctionUsecase) AutoRejectExpired(ctx context.Context) (int64, error) {
 	now := utils.Now()

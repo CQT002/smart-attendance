@@ -45,10 +45,12 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     final isManager = _isManager(context);
 
+    final approvalTabIndex = isManager ? 2 : -1;
+
     final tabs = <Widget>[
       const _HomeTab(),
       const HistoryScreen(),
-      if (isManager) const CorrectionApprovalScreen(),
+      if (isManager) CorrectionApprovalScreen(isActive: _currentIndex == approvalTabIndex),
       const _ProfileTab(),
     ];
 
@@ -67,7 +69,7 @@ class _HomeScreenState extends State<HomeScreen> {
         const NavigationDestination(
           icon: Icon(Icons.approval_outlined),
           selectedIcon: Icon(Icons.approval),
-          label: 'Duyệt bù công',
+          label: 'Duyệt',
         ),
       const NavigationDestination(
         icon: Icon(Icons.person_outlined),
@@ -260,13 +262,13 @@ class _HomeTabState extends State<_HomeTab> {
         final checkInStr = today?.checkInTime != null ? AppDateUtils.formatTime(today!.checkInTime!) : '--:--';
         final checkOutStr = today?.checkOutTime != null ? AppDateUtils.formatTime(today!.checkOutTime!) : '--:--';
 
-        // Calculate hours worked
+        // Calculate hours worked — business hours (trừ nghỉ trưa 12-13, clamp trong ca 8-17)
         String workedStr = '0h 0p';
         if (hasCheckedIn && today!.checkInTime != null) {
           final endTime = today.checkOutTime ?? _currentTime;
-          final diff = endTime.difference(today.checkInTime!);
-          final h = diff.inHours;
-          final m = diff.inMinutes.remainder(60);
+          final minutes = _calcBusinessMinutes(today.checkInTime!, endTime);
+          final h = minutes ~/ 60;
+          final m = minutes % 60;
           workedStr = '${h}h ${m}p';
         }
 
@@ -525,6 +527,33 @@ class _HomeTabState extends State<_HomeTab> {
     );
   }
 
+  /// Tính số phút làm việc theo business hours: sáng 8-12, chiều 13-17, max 480 phút (8h)
+  int _calcBusinessMinutes(DateTime checkIn, DateTime endTime) {
+    final y = checkIn.year, m = checkIn.month, d = checkIn.day;
+    final shiftStart = DateTime(y, m, d, 8, 0);
+    final lunchStart = DateTime(y, m, d, 12, 0);
+    final lunchEnd = DateTime(y, m, d, 13, 0);
+    final shiftEnd = DateTime(y, m, d, 17, 0);
+
+    // Clamp trong ca
+    var effIn = checkIn.isBefore(shiftStart) ? shiftStart : checkIn;
+    var effOut = endTime.isAfter(shiftEnd) ? shiftEnd : endTime;
+    if (!effOut.isAfter(effIn)) return 0;
+
+    var total = 0;
+    // Buổi sáng
+    final morningEnd = effOut.isBefore(lunchStart) ? effOut : lunchStart;
+    if (morningEnd.isAfter(effIn)) {
+      total += morningEnd.difference(effIn).inMinutes;
+    }
+    // Buổi chiều
+    final afternoonStart = effIn.isAfter(lunchEnd) ? effIn : lunchEnd;
+    if (effOut.isAfter(afternoonStart)) {
+      total += effOut.difference(afternoonStart).inMinutes;
+    }
+    return total > 480 ? 480 : total;
+  }
+
   String _getGreeting() {
     final hour = _currentTime.hour;
     if (hour < 12) return 'Chào buổi sáng';
@@ -562,13 +591,13 @@ class _ProfileTab extends StatelessWidget {
 
         return SafeArea(
           child: SingleChildScrollView(
-            padding: const EdgeInsets.all(20),
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
             child: Column(
               children: [
-                const SizedBox(height: 20),
+                const SizedBox(height: 8),
                 // Avatar with gradient ring
                 Container(
-                  padding: const EdgeInsets.all(4),
+                  padding: const EdgeInsets.all(3),
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     gradient: LinearGradient(
@@ -578,29 +607,29 @@ class _ProfileTab extends StatelessWidget {
                     ),
                   ),
                   child: CircleAvatar(
-                    radius: 48,
+                    radius: 40,
                     backgroundColor: Colors.white,
                     child: Text(
                       user?.name.isNotEmpty == true
                           ? user!.name[0].toUpperCase()
                           : '?',
-                      style: theme.textTheme.headlineLarge?.copyWith(
+                      style: theme.textTheme.headlineMedium?.copyWith(
                         color: AppColors.primary,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
                   ),
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 12),
                 Text(
                   user?.name ?? '',
                   style: theme.textTheme.titleLarge?.copyWith(
                     fontWeight: FontWeight.w800,
                     color: AppColors.primaryDark,
-                    fontSize: 22,
+                    fontSize: 20,
                   ),
                 ),
-                const SizedBox(height: 6),
+                const SizedBox(height: 4),
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
                   decoration: BoxDecoration(
@@ -615,7 +644,7 @@ class _ProfileTab extends StatelessWidget {
                     ),
                   ),
                 ),
-                const SizedBox(height: 28),
+                const SizedBox(height: 20),
 
                 // Info cards
                 _buildInfoItem(context, Icons.badge_outlined, 'Mã NV', user?.employeeCode ?? '', AppColors.secondary),
@@ -623,7 +652,8 @@ class _ProfileTab extends StatelessWidget {
                 _buildInfoItem(context, Icons.phone_outlined, 'SĐT', user?.phone ?? '', AppColors.success),
                 _buildInfoItem(context, Icons.business_outlined, 'Chi nhánh', user?.branch?.name ?? '', AppColors.primary),
                 _buildInfoItem(context, Icons.apartment_outlined, 'Phòng ban', user?.department ?? '', AppColors.statusHalfDay),
-                const SizedBox(height: 32),
+                _buildInfoItem(context, Icons.event_available_outlined, 'Ngày phép còn lại', user != null ? '${user.leaveBalance % 1 == 0 ? user.leaveBalance.toInt() : user.leaveBalance} ngày' : '---', AppColors.calendarLeave),
+                const SizedBox(height: 20),
 
                 // Logout button
                 SizedBox(
@@ -677,8 +707,8 @@ class _ProfileTab extends StatelessWidget {
     Color iconColor,
   ) {
     return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(14),

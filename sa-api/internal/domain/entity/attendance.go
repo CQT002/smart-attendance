@@ -11,7 +11,9 @@ const (
 	StatusEarlyLeave     AttendanceStatus = "early_leave"      // Về sớm
 	StatusLateEarlyLeave AttendanceStatus = "late_early_leave" // Đi muộn + Về sớm
 	StatusAbsent         AttendanceStatus = "absent"           // Vắng mặt
-	StatusHalfDay        AttendanceStatus = "half_day"         // Nửa ngày
+	StatusHalfDay        AttendanceStatus = "half_day"         // Nửa ngày (check-in/out chỉ nửa ca)
+	StatusLeave          AttendanceStatus = "leave"            // Nghỉ phép (cả ngày)
+	StatusHalfDayLeave   AttendanceStatus = "half_day_leave"   // Nghỉ phép nửa ngày
 )
 
 // CheckMethod phương thức xác thực vị trí

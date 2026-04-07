@@ -15,6 +15,7 @@ class UserModel {
   final BranchModel? branch;
   final String role;
   final bool isActive;
+  final double leaveBalance;
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -33,6 +34,7 @@ class UserModel {
     this.branch,
     required this.role,
     required this.isActive,
+    this.leaveBalance = 0,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -53,6 +55,7 @@ class UserModel {
       branch: json['branch'] != null ? BranchModel.fromJson(json['branch'] as Map<String, dynamic>) : null,
       role: json['role'] as String? ?? 'employee',
       isActive: json['is_active'] as bool? ?? true,
+      leaveBalance: (json['leave_balance'] as num?)?.toDouble() ?? 0,
       createdAt: DateTime.parse(json['created_at'] as String? ?? DateTime.now().toIso8601String()).toLocal(),
       updatedAt: DateTime.parse(json['updated_at'] as String? ?? DateTime.now().toIso8601String()).toLocal(),
     );
@@ -73,6 +76,7 @@ class UserModel {
       'branch_id': branchId,
       'role': role,
       'is_active': isActive,
+      'leave_balance': leaveBalance,
       'created_at': createdAt.toIso8601String(),
       'updated_at': updatedAt.toIso8601String(),
     };

@@ -27,6 +27,7 @@ import (
 	ucAttendance "github.com/hdbank/smart-attendance/internal/usecase/attendance"
 	ucBranch "github.com/hdbank/smart-attendance/internal/usecase/branch"
 	ucCorrection "github.com/hdbank/smart-attendance/internal/usecase/correction"
+	ucLeave "github.com/hdbank/smart-attendance/internal/usecase/leave"
 	ucReport "github.com/hdbank/smart-attendance/internal/usecase/report"
 	ucUser "github.com/hdbank/smart-attendance/internal/usecase/user"
 
@@ -90,6 +91,7 @@ func main() {
 	gpsConfigRepo := repository.NewGPSConfigRepository(db)
 	shiftRepo := repository.NewShiftRepository(db)
 	correctionRepo := repository.NewCorrectionRepository(db)
+	leaveRepo := repository.NewLeaveRepository(db)
 
 	// ── 6. Init Usecases ──
 	userUC := ucUser.NewUserUsecase(userRepo, redisCache, cfg.JWT)
@@ -99,23 +101,28 @@ func main() {
 	)
 	reportUC := ucReport.NewReportUsecase(attendanceRepo, userRepo, branchRepo, redisCache)
 	correctionUC := ucCorrection.NewCorrectionUsecase(correctionRepo, attendanceRepo, userRepo, shiftRepo, db, cfg.Correction)
+	leaveUC := ucLeave.NewLeaveUsecase(leaveRepo, correctionRepo, attendanceRepo, userRepo, shiftRepo, db)
 
 	// ── 7. Init Handlers ──
 	// User app handlers
 	authH := handlerUser.NewAuthHandler(userUC)
 	attendanceH := handlerUser.NewAttendanceHandler(attendanceUC)
 	correctionH := handlerUser.NewCorrectionHandler(correctionUC)
+	leaveH := handlerUser.NewLeaveHandler(leaveUC)
 	// Admin portal handlers
 	adminAuthH := handlerAdmin.NewAdminAuthHandler(userUC)
 	userH := handlerAdmin.NewUserHandler(userUC)
 	branchH := handlerAdmin.NewBranchHandler(branchUC)
 	adminAttendanceH := handlerAdmin.NewAttendanceHandler(attendanceUC)
 	adminCorrectionH := handlerAdmin.NewCorrectionHandler(correctionUC)
+	adminLeaveH := handlerAdmin.NewLeaveHandler(leaveUC)
 	reportH := handlerAdmin.NewReportHandler(reportUC)
 	wifiConfigH := handlerAdmin.NewWiFiConfigHandler(wifiConfigRepo)
 
 	// ── 8. Start background schedulers ──
 	scheduler.StartCorrectionAutoReject(correctionUC)
+	scheduler.StartLeaveAutoReject(leaveUC)
+	scheduler.StartLeaveAccrual(leaveUC)
 
 	// ── 9. Setup Echo Router ──
 	e := echo.New()
@@ -126,11 +133,13 @@ func main() {
 		AuthHandler:            authH,
 		AttendanceHandler:      attendanceH,
 		CorrectionHandler:      correctionH,
+		LeaveHandler:           leaveH,
 		AdminAuthHandler:       adminAuthH,
 		UserHandler:            userH,
 		BranchHandler:          branchH,
 		AdminAttendanceHandler: adminAttendanceH,
 		AdminCorrectionHandler: adminCorrectionH,
+		AdminLeaveHandler:      adminLeaveH,
 		ReportHandler:          reportH,
 		WiFiConfigHandler:      wifiConfigH,
 		Cache:                  redisCache,

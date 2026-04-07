@@ -45,6 +45,9 @@ type User struct {
 	// idx_user_branch_role_active priority:3 | idx_user_branch_active priority:2
 	IsActive bool `gorm:"default:true;index:idx_user_branch_role_active,priority:3;index:idx_user_branch_active,priority:2" json:"is_active"`
 
+	// Số ngày phép hiện có (full_day = 1.0, half_day = 0.5)
+	LeaveBalance float64 `gorm:"type:decimal(5,1);not null;default:0" json:"leave_balance"`
+
 	// Relations
 	AttendanceLogs []AttendanceLog `gorm:"foreignKey:UserID" json:"-"`
 }

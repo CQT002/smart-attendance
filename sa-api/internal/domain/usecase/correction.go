@@ -41,6 +41,9 @@ type CorrectionUsecase interface {
 	// GetMyList lấy danh sách yêu cầu của employee (filter theo userID)
 	GetMyList(ctx context.Context, userID uint, status entity.CorrectionStatus, page, limit int) ([]*entity.AttendanceCorrection, int64, error)
 
+	// BatchApprove duyệt tất cả yêu cầu PENDING (theo branch nếu có)
+	BatchApprove(ctx context.Context, processedByID uint, branchID *uint) (int64, error)
+
 	// AutoRejectExpired tự động reject yêu cầu PENDING của tháng cũ (cron job)
 	AutoRejectExpired(ctx context.Context) (int64, error)
 }

@@ -11,6 +11,8 @@ class AppConstants {
   static const String statusLateEarlyLeave = 'late_early_leave';
   static const String statusAbsent = 'absent';
   static const String statusHalfDay = 'half_day';
+  static const String statusLeave = 'leave';
+  static const String statusHalfDayLeave = 'half_day_leave';
 
   // Check methods
   static const String methodWifi = 'wifi';

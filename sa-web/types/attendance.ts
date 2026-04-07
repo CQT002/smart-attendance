@@ -6,7 +6,9 @@ export type AttendanceStatus =
   | "late"
   | "early_leave"
   | "absent"
-  | "half_day";
+  | "half_day"
+  | "leave"
+  | "half_day_leave";
 
 export type CheckMethod = "wifi" | "gps";
 

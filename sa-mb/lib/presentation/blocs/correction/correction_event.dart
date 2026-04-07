@@ -68,3 +68,6 @@ class CorrectionRejectRequested extends CorrectionEvent {
   @override
   List<Object?> get props => [correctionId, managerNote];
 }
+
+/// Manager: duyệt tất cả yêu cầu đang chờ
+class CorrectionBatchApproveRequested extends CorrectionEvent {}

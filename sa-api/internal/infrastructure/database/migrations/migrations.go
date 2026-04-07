@@ -174,5 +174,71 @@ func GetMigrations() []*gormigrate.Migration {
 				return tx.Exec(`ALTER TABLE attendance_corrections DROP COLUMN IF EXISTS credit_count`).Error
 			},
 		},
+
+		// ── 007: Tạo bảng leave_requests — Nghỉ phép ──
+		{
+			ID: "20250407000001",
+			Migrate: func(tx *gorm.DB) error {
+				type LeaveRequest struct {
+					entity.LeaveRequest
+				}
+				return tx.AutoMigrate(&LeaveRequest{})
+			},
+			Rollback: func(tx *gorm.DB) error {
+				return tx.Migrator().DropTable("leave_requests")
+			},
+		},
+
+		// ── 008: Thêm leave_balance vào users + seed 4 ngày phép cho user hiện tại ──
+		{
+			ID: "20250407000002",
+			Migrate: func(tx *gorm.DB) error {
+				// Thêm column leave_balance vào users
+				return tx.Exec(`ALTER TABLE users ADD COLUMN IF NOT EXISTS leave_balance DECIMAL(5,1) NOT NULL DEFAULT 0`).Error
+			},
+			Rollback: func(tx *gorm.DB) error {
+				return tx.Exec(`ALTER TABLE users DROP COLUMN IF EXISTS leave_balance`).Error
+			},
+		},
+
+		// ── 009: Bổ sung index hiệu năng cho bảng lớn ──
+		{
+			ID: "20250407000003",
+			Migrate: func(tx *gorm.DB) error {
+				sqls := []string{
+					// leave_requests: index cho query ngày nghỉ theo user
+					`CREATE INDEX IF NOT EXISTS idx_leave_user_leave_date ON leave_requests (user_id, leave_date)`,
+
+					// attendance_corrections: index created_at cho sort/filter
+					`CREATE INDEX IF NOT EXISTS idx_correction_branch_created ON attendance_corrections (branch_id, created_at DESC)`,
+
+					// leave_requests: index cho sort theo thời gian tạo trong branch
+					`CREATE INDEX IF NOT EXISTS idx_leave_branch_created ON leave_requests (branch_id, created_at DESC)`,
+
+					// attendance_logs: index cho query status theo user (lịch sử cá nhân filter status)
+					`CREATE INDEX IF NOT EXISTS idx_attendance_user_status ON attendance_logs (user_id, status)`,
+				}
+				for _, sql := range sqls {
+					if err := tx.Exec(sql).Error; err != nil {
+						return err
+					}
+				}
+				return nil
+			},
+			Rollback: func(tx *gorm.DB) error {
+				sqls := []string{
+					`DROP INDEX IF EXISTS idx_leave_user_leave_date`,
+					`DROP INDEX IF EXISTS idx_correction_branch_created`,
+					`DROP INDEX IF EXISTS idx_leave_branch_created`,
+					`DROP INDEX IF EXISTS idx_attendance_user_status`,
+				}
+				for _, sql := range sqls {
+					if err := tx.Exec(sql).Error; err != nil {
+						return err
+					}
+				}
+				return nil
+			},
+		},
 	}
 }

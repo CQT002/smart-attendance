@@ -142,13 +142,11 @@ func (u *attendanceUsecase) CheckIn(ctx context.Context, req usecase.CheckInRequ
 			existing.ShiftID = &shift.ID
 		}
 
-		// Tính lại work hours nếu đã có checkout
+		// Tính lại work hours nếu đã có checkout — dùng business hours (trừ nghỉ trưa, cap 8h)
 		if existing.CheckOutTime != nil {
-			workHours := existing.CheckOutTime.Sub(now).Hours()
-			if workHours < 0 {
-				workHours = 0
-			}
-			existing.WorkHours = roundToTwoDecimal(workHours)
+			wh, ot := calculateBusinessWorkHours(now, *existing.CheckOutTime, shift)
+			existing.WorkHours = wh
+			existing.Overtime = ot
 		}
 
 		if err := u.attendanceRepo.Update(ctx, existing); err != nil {
@@ -289,15 +287,20 @@ func (u *attendanceUsecase) CheckOut(ctx context.Context, req usecase.CheckOutRe
 		attendLog.CheckOutBSSID = req.BSSID
 
 		if attendLog.CheckInTime != nil {
-			workHours := now.Sub(*attendLog.CheckInTime).Hours()
-			attendLog.WorkHours = roundToTwoDecimal(workHours)
-
 			if attendLog.ShiftID != nil {
 				shift, err := u.shiftRepo.FindByID(ctx, *attendLog.ShiftID)
 				if err == nil && shift != nil {
-					attendLog.Overtime = u.calculateOvertime(workHours, shift)
-					attendLog.Status = u.calculateCheckOutStatus(attendLog.Status, now, shift)
+					wh, ot := calculateBusinessWorkHours(*attendLog.CheckInTime, now, shift)
+					attendLog.WorkHours = wh
+					attendLog.Overtime = ot
+					attendLog.Status = u.calculateCheckOutStatus(attendLog.Status, now, shift, wh)
 				}
+			} else {
+				// Fallback khi không có shift — dùng default 8h shift
+				defaultShift := &entity.Shift{StartTime: "08:00", EndTime: "17:00", WorkHours: 8}
+				wh, ot := calculateBusinessWorkHours(*attendLog.CheckInTime, now, defaultShift)
+				attendLog.WorkHours = wh
+				attendLog.Overtime = ot
 			}
 		}
 
@@ -450,40 +453,175 @@ func (u *attendanceUsecase) validateLocation(
 	return nil, apperrors.ErrLocationNotAllowed
 }
 
+// Mốc giờ nghỉ trưa cố định — dùng để phân biệt nửa ngày sáng/chiều
+const (
+	lunchBreakStart = 12 // 12:00
+	lunchBreakEnd   = 13 // 13:00
+)
+
 // calculateCheckInStatus tính trạng thái dựa vào giờ vào so với ca làm việc
+//
+// Logic nửa ngày:
+//   - Check-in trong khoảng 12:00–13:00 → half_day (buổi chiều)
+//   - Check-in sau 13:00 → late
+//   - Check-in trước giờ ca + LateAfter → present
+//   - Check-in sau giờ ca + LateAfter nhưng trước 12:00 → late
 func (u *attendanceUsecase) calculateCheckInStatus(checkInTime time.Time, shift *entity.Shift) entity.AttendanceStatus {
 	checkInTime = checkInTime.In(utils.HCM)
+	hour := checkInTime.Hour()
+
 	startHour, startMin := parseTime(shift.StartTime)
 	shiftStart := time.Date(
 		checkInTime.Year(), checkInTime.Month(), checkInTime.Day(),
 		startHour, startMin, 0, 0, utils.HCM,
 	)
+
+	// Check-in trong giờ nghỉ trưa (12:00-13:00) → nửa ngày buổi chiều
+	if hour >= lunchBreakStart && hour < lunchBreakEnd {
+		return entity.StatusHalfDay
+	}
+
+	// Check-in sau 13:00 → trễ (không phải nửa ngày, vì buổi chiều bắt đầu từ 13:00)
+	if hour >= lunchBreakEnd {
+		return entity.StatusLate
+	}
+
+	// Check-in buổi sáng bình thường
 	if checkInTime.After(shiftStart.Add(time.Duration(shift.LateAfter) * time.Minute)) {
 		return entity.StatusLate
 	}
 	return entity.StatusPresent
 }
 
-// calculateCheckOutStatus cập nhật trạng thái nếu về sớm hơn quy định
-// Kết hợp: late + early_leave → late_early_leave
-func (u *attendanceUsecase) calculateCheckOutStatus(current entity.AttendanceStatus, checkOutTime time.Time, shift *entity.Shift) entity.AttendanceStatus {
+// calculateCheckOutStatus cập nhật trạng thái khi check-out
+//
+// Logic nửa ngày:
+//   - Check-out trong khoảng 12:00–13:00 khi check-in buổi sáng → half_day
+//   - Check-out trước giờ kết thúc ca - EarlyBefore → early_leave (hoặc late_early_leave)
+//   - WorkHours <= nửa ca → half_day (fallback)
+func (u *attendanceUsecase) calculateCheckOutStatus(current entity.AttendanceStatus, checkOutTime time.Time, shift *entity.Shift, workHours float64) entity.AttendanceStatus {
 	checkOutTime = checkOutTime.In(utils.HCM)
+	hour := checkOutTime.Hour()
+
 	endHour, endMin := parseTime(shift.EndTime)
 	shiftEnd := time.Date(
 		checkOutTime.Year(), checkOutTime.Month(), checkOutTime.Day(),
 		endHour, endMin, 0, 0, utils.HCM,
 	)
+
+	// Check-out trong giờ nghỉ trưa (12:00-13:00) khi check-in buổi sáng → nửa ngày
+	if hour >= lunchBreakStart && hour < lunchBreakEnd && current != entity.StatusLate {
+		return entity.StatusHalfDay
+	}
+
+	// Nếu check-in đã là half_day (buổi chiều) → giữ half_day nếu checkout đúng giờ
+	if current == entity.StatusHalfDay {
+		isEarlyLeave := checkOutTime.Before(shiftEnd.Add(-time.Duration(shift.EarlyBefore) * time.Minute))
+		if isEarlyLeave {
+			// Check-in buổi chiều nhưng về sớm → vẫn half_day (đã làm nửa ngày)
+			// Chỉ chuyển early_leave nếu về quá sớm (work < 2h)
+			if workHours < 2 {
+				return entity.StatusEarlyLeave
+			}
+		}
+		return entity.StatusHalfDay
+	}
+
+	// Fallback: workHours <= nửa ca → half_day (chỉ khi check-in đúng giờ buổi sáng)
+	// Không áp dụng cho late (check-in muộn mà work ít → vẫn là late/early_leave)
+	halfShift := shift.WorkHours / 2
+	if current == entity.StatusPresent && workHours > 0 && workHours <= halfShift+0.25 {
+		return entity.StatusHalfDay
+	}
+
+	// Check về sớm
 	isEarlyLeave := checkOutTime.Before(shiftEnd.Add(-time.Duration(shift.EarlyBefore) * time.Minute))
 	if isEarlyLeave {
 		if current == entity.StatusLate {
-			return entity.StatusLateEarlyLeave // Đi trễ + Về sớm
+			return entity.StatusLateEarlyLeave
 		}
 		return entity.StatusEarlyLeave
 	}
 	return current
 }
 
-// calculateOvertime tính giờ làm thêm
+// calculateBusinessWorkHours tính giờ làm thực tế theo business rules:
+//   - Buổi sáng: max(checkIn, shiftStart) → min(checkOut, 12:00), tối đa 4h
+//   - Nghỉ trưa: 12:00 → 13:00 = không tính
+//   - Buổi chiều: max(checkIn, 13:00) → min(checkOut, shiftEnd), tối đa 4h
+//   - Tổng tối đa = shift.WorkHours (8h)
+//   - Overtime luôn = 0 (tính năng tăng ca sẽ có column riêng: OT check-in/out/hours)
+//
+// Ví dụ: checkIn 7:50, checkOut 20:00 → sáng 4h + chiều 4h = 8h, overtime = 0
+func calculateBusinessWorkHours(checkIn, checkOut time.Time, shift *entity.Shift) (float64, float64) {
+	checkIn = checkIn.In(utils.HCM)
+	checkOut = checkOut.In(utils.HCM)
+
+	if !checkOut.After(checkIn) {
+		return 0, 0
+	}
+
+	y, m, d := checkIn.Year(), checkIn.Month(), checkIn.Day()
+	lunchStart := time.Date(y, m, d, lunchBreakStart, 0, 0, 0, utils.HCM) // 12:00
+	lunchEnd := time.Date(y, m, d, lunchBreakEnd, 0, 0, 0, utils.HCM)     // 13:00
+
+	startH, startM := parseTime(shift.StartTime)
+	endH, endM := parseTime(shift.EndTime)
+	shiftStart := time.Date(y, m, d, startH, startM, 0, 0, utils.HCM) // 08:00
+	shiftEnd := time.Date(y, m, d, endH, endM, 0, 0, utils.HCM)       // 17:00
+
+	// Clamp vào khung giờ ca — không tính trước shiftStart và sau shiftEnd
+	effectiveIn := maxTime(checkIn, shiftStart)
+	effectiveOut := minTime(checkOut, shiftEnd)
+
+	if !effectiveOut.After(effectiveIn) {
+		return 0, 0
+	}
+
+	var totalMinutes float64
+
+	// Buổi sáng: effectiveIn → min(effectiveOut, 12:00)
+	morningEnd := minTime(effectiveOut, lunchStart)
+	if morningEnd.After(effectiveIn) {
+		totalMinutes += morningEnd.Sub(effectiveIn).Minutes()
+	}
+
+	// Buổi chiều: max(effectiveIn, 13:00) → effectiveOut
+	afternoonStart := maxTime(effectiveIn, lunchEnd)
+	if effectiveOut.After(afternoonStart) {
+		totalMinutes += effectiveOut.Sub(afternoonStart).Minutes()
+	}
+
+	workHours := totalMinutes / 60.0
+
+	// Cap tại shift.WorkHours (8h)
+	maxRegular := shift.WorkHours
+	if maxRegular <= 0 {
+		maxRegular = 8
+	}
+	if workHours > maxRegular {
+		workHours = maxRegular
+	}
+
+	// Overtime = 0: tính năng tăng ca sẽ dùng column riêng (ot_check_in, ot_check_out, ot_hours)
+	return roundToTwoDecimal(workHours), 0
+}
+
+func minTime(a, b time.Time) time.Time {
+	if a.Before(b) {
+		return a
+	}
+	return b
+}
+
+func maxTime(a, b time.Time) time.Time {
+	if a.After(b) {
+		return a
+	}
+	return b
+}
+
+// calculateOvertime tính giờ làm thêm (legacy — dùng cho trường hợp không có shift)
 func (u *attendanceUsecase) calculateOvertime(workHours float64, shift *entity.Shift) float64 {
 	if workHours <= shift.WorkHours {
 		return 0

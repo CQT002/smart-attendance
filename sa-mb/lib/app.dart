@@ -5,6 +5,7 @@ import 'core/theme/app_theme.dart';
 import 'data/repositories/auth_repository_impl.dart';
 import 'data/repositories/attendance_repository_impl.dart';
 import 'data/repositories/correction_repository_impl.dart';
+import 'data/repositories/leave_repository_impl.dart';
 import 'data/services/device_service.dart';
 import 'data/services/location_service.dart';
 import 'data/services/security_service.dart';
@@ -12,11 +13,13 @@ import 'data/services/wifi_service.dart';
 import 'domain/repositories/auth_repository.dart';
 import 'domain/repositories/attendance_repository.dart';
 import 'domain/repositories/correction_repository.dart';
+import 'domain/repositories/leave_repository.dart';
 import 'presentation/blocs/auth/auth_bloc.dart';
 import 'presentation/blocs/auth/auth_event.dart';
 import 'presentation/blocs/auth/auth_state.dart';
 import 'presentation/blocs/attendance/attendance_bloc.dart';
 import 'presentation/blocs/correction/correction_bloc.dart';
+import 'presentation/blocs/leave/leave_bloc.dart';
 import 'presentation/screens/login_screen.dart';
 import 'presentation/screens/home_screen.dart';
 
@@ -32,6 +35,7 @@ class _SmartAttendanceAppState extends State<SmartAttendanceApp> {
   late final AuthRepository _authRepository;
   late final AttendanceRepository _attendanceRepository;
   late final CorrectionRepository _correctionRepository;
+  late final LeaveRepository _leaveRepository;
   late final LocationService _locationService;
   late final WifiService _wifiService;
   late final DeviceService _deviceService;
@@ -44,6 +48,7 @@ class _SmartAttendanceAppState extends State<SmartAttendanceApp> {
     _authRepository = AuthRepositoryImpl(_apiClient);
     _attendanceRepository = AttendanceRepositoryImpl(_apiClient);
     _correctionRepository = CorrectionRepositoryImpl(_apiClient);
+    _leaveRepository = LeaveRepositoryImpl(_apiClient);
     _locationService = LocationService();
     _wifiService = WifiService();
     _deviceService = DeviceService();
@@ -66,6 +71,7 @@ class _SmartAttendanceAppState extends State<SmartAttendanceApp> {
                 providers: [
                   RepositoryProvider.value(value: _attendanceRepository),
                   RepositoryProvider.value(value: _correctionRepository),
+                  RepositoryProvider.value(value: _leaveRepository),
                   BlocProvider(
                     create: (_) => AttendanceBloc(
                       attendanceRepository: _attendanceRepository,
@@ -79,6 +85,11 @@ class _SmartAttendanceAppState extends State<SmartAttendanceApp> {
                   BlocProvider(
                     create: (_) => CorrectionBloc(
                       correctionRepository: _correctionRepository,
+                    ),
+                  ),
+                  BlocProvider(
+                    create: (_) => LeaveBloc(
+                      leaveRepository: _leaveRepository,
                     ),
                   ),
                 ],

@@ -5,12 +5,16 @@ import '../../core/theme/app_colors.dart';
 import '../../core/utils/date_utils.dart';
 import '../../data/models/attendance_model.dart';
 import '../../data/models/correction_model.dart';
+import '../../data/models/leave_model.dart';
 import '../../domain/repositories/correction_repository.dart';
+import '../../domain/repositories/leave_repository.dart';
 import '../blocs/attendance/attendance_bloc.dart';
 import '../blocs/attendance/attendance_event.dart';
 import '../blocs/attendance/attendance_state.dart';
 import '../blocs/correction/correction_bloc.dart';
+import '../blocs/leave/leave_bloc.dart';
 import 'correction_request_screen.dart';
+import 'leave_request_screen.dart';
 
 class HistoryScreen extends StatefulWidget {
   const HistoryScreen({super.key});
@@ -25,6 +29,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
   DateTime? _selectedDay;
   List<AttendanceModel> _cachedRecords = [];
   Map<int, CorrectionModel> _correctionsByLogId = {}; // attendance_log_id → correction
+  Map<String, LeaveModel> _leavesByDate = {}; // "yyyy-MM-dd" → leave
   bool _isLoadingHistory = false;
   final ScrollController _scrollController = ScrollController();
 
@@ -48,6 +53,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
           AttendanceLoadHistory(from: from, to: to),
         );
     _loadCorrections();
+    _loadLeaves();
     setState(() {
       _selectedDayRecord = null;
       _selectedDay = null;
@@ -68,14 +74,31 @@ class _HistoryScreenState extends State<HistoryScreen> {
     }
   }
 
+  Future<void> _loadLeaves() async {
+    try {
+      final repo = context.read<LeaveRepository>();
+      final leaves = await repo.getMyLeaves(limit: 100);
+      setState(() {
+        _leavesByDate = {
+          for (final l in leaves)
+            l.leaveDate.length >= 10 ? l.leaveDate.substring(0, 10) : l.leaveDate: l,
+        };
+      });
+    } catch (_) {
+      // Fail silently — leave info is optional
+    }
+  }
+
   void _selectDay(DateTime date, AttendanceModel? record) {
     setState(() {
       _selectedDay = date;
       _selectedDayRecord = record;
     });
-    // Hiện chi tiết trong BottomSheet khi có record
     if (record != null) {
       _showDayDetail(record);
+    } else {
+      // Ngày không có record — cho phép đăng ký nghỉ phép (ngày tương lai hoặc ngày vắng chưa có log)
+      _showLeaveOnlySheet(date);
     }
   }
 
@@ -83,6 +106,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
     final theme = Theme.of(context);
     final correctable = _isCorrectable(record);
     final existingCorrection = _correctionsByLogId[record.id];
+    final existingLeave = _leavesByDate[_dateKey(record.date)];
 
     showModalBottomSheet(
       context: context,
@@ -146,20 +170,52 @@ class _HistoryScreenState extends State<HistoryScreen> {
               _buildCorrectionStatus(theme, existingCorrection),
             ] else if (correctable) ...[
               const SizedBox(height: 20),
+              Row(
+                children: [
+                  Expanded(
+                    child: SizedBox(
+                      height: 48,
+                      child: ElevatedButton.icon(
+                        onPressed: () {
+                          Navigator.pop(ctx);
+                          _openCorrectionRequest();
+                        },
+                        icon: const Icon(Icons.edit_calendar_outlined, size: 18),
+                        label: const Text('Bù công',
+                          style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColors.primary,
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+            // Trạng thái nghỉ phép (nếu đã có đơn)
+            if (existingLeave != null) ...[
+              const SizedBox(height: 16),
+              _buildLeaveStatus(theme, existingLeave),
+            ]
+            // Nút nghỉ phép cho ngày quá khứ leavable (absent, half_day) — chỉ hiện khi chưa có đơn
+            else if (existingCorrection == null && _isLeavable(record)) ...[
+              const SizedBox(height: 8),
               SizedBox(
                 width: double.infinity,
                 height: 48,
-                child: ElevatedButton.icon(
+                child: OutlinedButton.icon(
                   onPressed: () {
                     Navigator.pop(ctx);
-                    _openCorrectionRequest();
+                    _openLeaveRequest(record.date, record);
                   },
-                  icon: const Icon(Icons.edit_calendar_outlined, size: 18),
-                  label: const Text('Đăng ký bù công',
-                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.primary,
-                    foregroundColor: Colors.white,
+                  icon: const Icon(Icons.event_busy_outlined, size: 18),
+                  label: const Text('Đăng ký nghỉ phép',
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppColors.calendarLeave,
+                    side: const BorderSide(color: AppColors.calendarLeave),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   ),
                 ),
@@ -230,6 +286,75 @@ class _HistoryScreenState extends State<HistoryScreen> {
           if (correction.processedAt != null) ...[
             const SizedBox(height: 4),
             Text('Thời gian: ${AppDateUtils.formatDateTime(correction.processedAt!)}',
+              style: theme.textTheme.bodySmall?.copyWith(color: AppColors.textSecondary)),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLeaveStatus(ThemeData theme, LeaveModel leave) {
+    Color statusColor;
+    IconData statusIcon;
+    String statusText;
+
+    switch (leave.status) {
+      case 'approved':
+        statusColor = AppColors.success;
+        statusIcon = Icons.check_circle_outline;
+        statusText = 'Đã duyệt nghỉ phép';
+        break;
+      case 'rejected':
+        statusColor = AppColors.error;
+        statusIcon = Icons.cancel_outlined;
+        statusText = 'Từ chối nghỉ phép';
+        break;
+      default: // pending
+        statusColor = AppColors.warning;
+        statusIcon = Icons.hourglass_top_rounded;
+        statusText = 'Nghỉ phép đang chờ duyệt';
+    }
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: statusColor.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: statusColor.withValues(alpha: 0.3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(statusIcon, color: statusColor, size: 20),
+              const SizedBox(width: 8),
+              Text(statusText,
+                style: theme.textTheme.titleSmall?.copyWith(
+                  color: statusColor, fontWeight: FontWeight.w700)),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text('${leave.leaveTypeDisplay} (${leave.timeRangeDisplay})',
+            style: theme.textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600)),
+          const SizedBox(height: 4),
+          Text('Lý do: ${leave.description}',
+            style: theme.textTheme.bodySmall?.copyWith(color: AppColors.textSecondary)),
+          if (leave.managerNote.isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Text('Ghi chú: ${leave.managerNote}',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: AppColors.textSecondary, fontStyle: FontStyle.italic)),
+          ],
+          if (leave.processedBy != null) ...[
+            const SizedBox(height: 4),
+            Text('Người duyệt: ${leave.processedBy!.name}',
+              style: theme.textTheme.bodySmall?.copyWith(color: AppColors.textSecondary)),
+          ],
+          if (leave.processedAt != null) ...[
+            const SizedBox(height: 4),
+            Text('Thời gian: ${AppDateUtils.formatDateTime(leave.processedAt!)}',
               style: theme.textTheme.bodySmall?.copyWith(color: AppColors.textSecondary)),
           ],
         ],
@@ -355,6 +480,9 @@ class _HistoryScreenState extends State<HistoryScreen> {
         return AppColors.warning;
       case 'absent':
         return AppColors.error;
+      case 'leave':
+      case 'half_day_leave':
+        return AppColors.calendarLeave;
       default:
         return AppColors.textSecondary;
     }
@@ -400,7 +528,8 @@ class _HistoryScreenState extends State<HistoryScreen> {
       '', 'Tháng 1', 'Tháng 2', 'Tháng 3', 'Tháng 4', 'Tháng 5', 'Tháng 6',
       'Tháng 7', 'Tháng 8', 'Tháng 9', 'Tháng 10', 'Tháng 11', 'Tháng 12',
     ];
-    final canGoNext = _currentMonth.isBefore(DateTime(now.year, now.month, 1));
+    // Cho phép xem tháng tới để đăng ký nghỉ phép tương lai
+    final canGoNext = _currentMonth.isBefore(DateTime(now.year, now.month + 1, 1));
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -510,7 +639,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
         cells.add(
           Expanded(
             child: GestureDetector(
-              onTap: (isFuture && !isToday) ? null : () => _selectDay(date, record),
+              onTap: () => _selectDay(date, record),
               child: Container(
                 height: 40,
                 width: 40,
@@ -607,8 +736,17 @@ class _HistoryScreenState extends State<HistoryScreen> {
       if (date.weekday < 6 && _isHoliday(date)) holidayWorkDays++;
     }
 
-    final fullDays = records.where((r) => r.hasCheckedIn && r.hasCheckedOut && r.workHours >= 8).length + holidayWorkDays;
-    final incompleteDays = records.where((r) => (r.hasCheckedIn || r.hasCheckedOut) && !(r.hasCheckedIn && r.hasCheckedOut && r.workHours >= 8)).length;
+    // Nghỉ phép đã duyệt (leave, half_day_leave) tính là đủ công
+    const leaveStatuses = {'leave', 'half_day_leave'};
+
+    final fullDays = records.where((r) =>
+        leaveStatuses.contains(r.status) ||
+        (r.hasCheckedIn && r.hasCheckedOut && r.workHours >= 8)).length + holidayWorkDays;
+
+    final incompleteDays = records.where((r) =>
+        !leaveStatuses.contains(r.status) &&
+        (r.hasCheckedIn || r.hasCheckedOut) &&
+        !(r.hasCheckedIn && r.hasCheckedOut && r.workHours >= 8)).length;
 
     return Card(
       child: Padding(
@@ -655,6 +793,114 @@ class _HistoryScreenState extends State<HistoryScreen> {
               'Không có dữ liệu chấm công ngày ${AppDateUtils.formatDate(_selectedDay!)}',
               style: theme.textTheme.bodyMedium?.copyWith(color: AppColors.textSecondary),
             ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  bool _isLeavable(AttendanceModel record) {
+    const leavableStatuses = {
+      AppConstants.statusAbsent,
+      AppConstants.statusHalfDay,
+    };
+    return leavableStatuses.contains(record.status);
+  }
+
+  void _openLeaveRequest(DateTime date, AttendanceModel? attendance) async {
+    final result = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (_) => BlocProvider.value(
+          value: context.read<LeaveBloc>(),
+          child: LeaveRequestScreen(
+            selectedDate: date,
+            attendance: attendance,
+          ),
+        ),
+      ),
+    );
+    if (result == true) {
+      _loadMonth();
+    }
+  }
+
+  void _showLeaveOnlySheet(DateTime date) {
+    final theme = Theme.of(context);
+    final today = DateTime.now();
+    final isWeekend = date.weekday == 6 || date.weekday == 7;
+
+    // Không hiện sheet cho cuối tuần
+    if (isWeekend) return;
+
+    final existingLeave = _leavesByDate[_dateKey(date)];
+
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 40, height: 4,
+              margin: const EdgeInsets.only(bottom: 16),
+              decoration: BoxDecoration(
+                color: Colors.grey[300],
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  AppDateUtils.formatDate(date),
+                  style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: AppColors.textSecondary.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    date.isAfter(DateTime(today.year, today.month, today.day))
+                        ? 'Ngày tương lai'
+                        : 'Vắng mặt',
+                    style: const TextStyle(
+                      color: AppColors.textSecondary,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            // Hiện trạng thái nghỉ phép nếu đã có đơn, ngược lại hiện button đăng ký
+            if (existingLeave != null)
+              _buildLeaveStatus(theme, existingLeave)
+            else
+              SizedBox(
+                width: double.infinity,
+                height: 48,
+                child: ElevatedButton.icon(
+                  onPressed: () {
+                    Navigator.pop(ctx);
+                    _openLeaveRequest(date, null);
+                  },
+                  icon: const Icon(Icons.event_busy_outlined, size: 18),
+                  label: const Text('Đăng ký nghỉ phép',
+                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.calendarLeave,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                ),
+              ),
           ],
         ),
       ),

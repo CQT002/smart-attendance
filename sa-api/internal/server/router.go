@@ -18,12 +18,14 @@ type RouterDeps struct {
 	AuthHandler           *handlerUser.AuthHandler
 	AttendanceHandler     *handlerUser.AttendanceHandler
 	CorrectionHandler     *handlerUser.CorrectionHandler
+	LeaveHandler          *handlerUser.LeaveHandler
 	// Admin portal handlers
 	AdminAuthHandler       *handlerAdmin.AdminAuthHandler
 	UserHandler            *handlerAdmin.UserHandler
 	BranchHandler          *handlerAdmin.BranchHandler
 	AdminAttendanceHandler *handlerAdmin.AttendanceHandler
 	AdminCorrectionHandler *handlerAdmin.CorrectionHandler
+	AdminLeaveHandler      *handlerAdmin.LeaveHandler
 	ReportHandler          *handlerAdmin.ReportHandler
 	WiFiConfigHandler      *handlerAdmin.WiFiConfigHandler
 
@@ -76,6 +78,12 @@ func SetupRouter(e *echo.Echo, deps RouterDeps) {
 	corrections.GET("", deps.CorrectionHandler.GetMyList)
 	corrections.GET("/:id", deps.CorrectionHandler.GetByID)
 
+	// ── Employee leave routes (nghỉ phép) ──
+	leaves := protected.Group("/attendance/leaves")
+	leaves.POST("", deps.LeaveHandler.Create)
+	leaves.GET("", deps.LeaveHandler.GetMyList)
+	leaves.GET("/:id", deps.LeaveHandler.GetByID)
+
 	// ── Admin portal routes ──
 	// Admin auth — login không cần JWT, me/change-password cần JWT
 	adminAuth := api.Group("/admin/auth")
@@ -102,6 +110,18 @@ func SetupRouter(e *echo.Echo, deps RouterDeps) {
 	adminCorrections.GET("", deps.AdminCorrectionHandler.GetList)
 	adminCorrections.GET("/:id", deps.AdminCorrectionHandler.GetByID)
 	adminCorrections.PUT("/:id/process", deps.AdminCorrectionHandler.Process)
+	adminCorrections.POST("/batch-approve", deps.AdminCorrectionHandler.BatchApprove)
+
+	// Admin - Leave management (nghỉ phép)
+	adminLeaves := adminGroup.Group("/leaves")
+	adminLeaves.GET("", deps.AdminLeaveHandler.GetList)
+	adminLeaves.GET("/:id", deps.AdminLeaveHandler.GetByID)
+	adminLeaves.PUT("/:id/process", deps.AdminLeaveHandler.Process)
+	adminLeaves.POST("/batch-approve", deps.AdminLeaveHandler.BatchApprove)
+
+	// Admin - Unified approvals (tổng hợp duyệt chấm công)
+	adminGroup.GET("/approvals", deps.AdminLeaveHandler.GetApprovals)
+	adminGroup.GET("/approvals/pending", deps.AdminLeaveHandler.GetPendingApprovals) // backward compat
 
 	// Admin - User management
 	users := adminGroup.Group("/users")

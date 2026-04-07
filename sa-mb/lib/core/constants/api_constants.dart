@@ -18,4 +18,18 @@ class ApiConstants {
 
   // Corrections (manager/admin)
   static const String adminCorrections = '$apiPrefix/admin/corrections';
+
+  // Leaves (employee)
+  static const String leaves = '$apiPrefix/attendance/leaves';
+
+  // Leaves (manager/admin)
+  static const String adminLeaves = '$apiPrefix/admin/leaves';
+
+  // Batch approve
+  static const String batchApproveCorrections = '$apiPrefix/admin/corrections/batch-approve';
+  static const String batchApproveLeaves = '$apiPrefix/admin/leaves/batch-approve';
+
+  // Unified approvals (manager/admin)
+  static const String approvals = '$apiPrefix/admin/approvals';
+  static const String pendingApprovals = '$apiPrefix/admin/approvals/pending';
 }

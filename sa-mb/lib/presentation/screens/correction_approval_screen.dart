@@ -2,15 +2,23 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/utils/date_utils.dart';
-import '../../data/models/correction_model.dart';
+import '../../data/models/approval_item_model.dart';
+import '../../domain/repositories/correction_repository.dart';
 import '../blocs/correction/correction_bloc.dart';
 import '../blocs/correction/correction_event.dart';
 import '../blocs/correction/correction_state.dart';
+import '../blocs/leave/leave_bloc.dart';
+import '../blocs/leave/leave_event.dart';
+import '../blocs/leave/leave_state.dart';
 import '../widgets/app_toast.dart';
 
-/// Màn hình duyệt bù công dành cho Manager
+/// Màn hình duyệt chấm công tổng hợp (bù công + nghỉ phép) dành cho Manager
+/// Sử dụng API unified GET /admin/approvals để lấy data đã merge sẵn từ backend
 class CorrectionApprovalScreen extends StatefulWidget {
-  const CorrectionApprovalScreen({super.key});
+  /// Khi [isActive] chuyển từ false → true, screen tự reload data
+  final bool isActive;
+
+  const CorrectionApprovalScreen({super.key, this.isActive = true});
 
   @override
   State<CorrectionApprovalScreen> createState() => _CorrectionApprovalScreenState();
@@ -21,6 +29,9 @@ class _CorrectionApprovalScreenState extends State<CorrectionApprovalScreen>
   late TabController _tabController;
   String _currentFilter = 'pending';
 
+  List<ApprovalItemModel> _items = [];
+  bool _isLoading = false;
+
   @override
   void initState() {
     super.initState();
@@ -29,16 +40,37 @@ class _CorrectionApprovalScreenState extends State<CorrectionApprovalScreen>
       if (!_tabController.indexIsChanging) {
         final filters = ['pending', 'approved', 'rejected'];
         setState(() => _currentFilter = filters[_tabController.index]);
-        _loadList();
+        _loadData();
       }
     });
-    _loadList();
+    _loadData();
   }
 
-  void _loadList() {
-    context.read<CorrectionBloc>().add(
-          CorrectionLoadAdminList(status: _currentFilter),
-        );
+  @override
+  void didUpdateWidget(covariant CorrectionApprovalScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.isActive && !oldWidget.isActive) {
+      _loadData();
+    }
+  }
+
+  /// Load data từ API unified — 1 request duy nhất, backend đã merge + sort sẵn
+  Future<void> _loadData() async {
+    setState(() => _isLoading = true);
+
+    try {
+      final repo = context.read<CorrectionRepository>();
+      final items = await repo.getApprovals(status: _currentFilter, limit: 100);
+
+      if (!mounted) return;
+      setState(() {
+        _items = items;
+        _isLoading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+    }
   }
 
   @override
@@ -51,10 +83,21 @@ class _CorrectionApprovalScreenState extends State<CorrectionApprovalScreen>
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
+    final pendingCount = _items.where((i) => i.isPending).length;
+
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Duyệt bù công'),
+        title: const Text('Duyệt chấm công'),
         centerTitle: true,
+        actions: [
+          if (_currentFilter == 'pending' && pendingCount > 0)
+            TextButton.icon(
+              onPressed: () => _showBatchApproveConfirm(context, pendingCount),
+              icon: const Icon(Icons.done_all, size: 18),
+              label: const Text('Duyệt tất cả'),
+              style: TextButton.styleFrom(foregroundColor: AppColors.success),
+            ),
+        ],
         bottom: TabBar(
           controller: _tabController,
           tabs: const [
@@ -64,62 +107,101 @@ class _CorrectionApprovalScreenState extends State<CorrectionApprovalScreen>
           ],
         ),
       ),
-      body: BlocConsumer<CorrectionBloc, CorrectionState>(
-        listener: (context, state) {
-          if (state is CorrectionProcessSuccess) {
-            AppToast.show(context,
-                message: state.message, type: ToastType.success);
-            _loadList();
-          } else if (state is CorrectionFailure) {
-            AppToast.show(context, message: state.message);
-          }
-        },
-        builder: (context, state) {
-          if (state is CorrectionLoading) {
-            return const Center(child: CircularProgressIndicator());
-          }
+      body: MultiBlocListener(
+        listeners: [
+          BlocListener<CorrectionBloc, CorrectionState>(
+            listener: (context, state) {
+              if (state is CorrectionProcessSuccess) {
+                AppToast.show(context, message: state.message, type: ToastType.success);
+                _loadData();
+              } else if (state is CorrectionBatchApproveSuccess) {
+                AppToast.show(context,
+                    message: 'Đã duyệt ${state.approvedCount} yêu cầu bù công',
+                    type: ToastType.success);
+                _loadData();
+              } else if (state is CorrectionFailure) {
+                AppToast.show(context, message: state.message);
+              }
+            },
+          ),
+          BlocListener<LeaveBloc, LeaveState>(
+            listener: (context, state) {
+              if (state is LeaveProcessSuccess) {
+                AppToast.show(context, message: state.message, type: ToastType.success);
+                _loadData();
+              } else if (state is LeaveBatchApproveSuccess) {
+                AppToast.show(context,
+                    message: 'Đã duyệt ${state.approvedCount} yêu cầu nghỉ phép',
+                    type: ToastType.success);
+                _loadData();
+              } else if (state is LeaveFailure) {
+                AppToast.show(context, message: state.message);
+              }
+            },
+          ),
+        ],
+        child: _buildBody(theme),
+      ),
+    );
+  }
 
-          if (state is CorrectionAdminListLoaded) {
-            if (state.corrections.isEmpty) {
-              return Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(Icons.inbox_outlined,
-                        size: 64, color: AppColors.textSecondary.withValues(alpha: 0.5)),
-                    const SizedBox(height: 16),
-                    Text(
-                      'Không có yêu cầu nào',
-                      style: theme.textTheme.bodyLarge
-                          ?.copyWith(color: AppColors.textSecondary),
-                    ),
-                  ],
+  Widget _buildBody(ThemeData theme) {
+    if (_isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    if (_items.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.inbox_outlined,
+                size: 64, color: AppColors.textSecondary.withValues(alpha: 0.5)),
+            const SizedBox(height: 16),
+            Text(
+              'Không có yêu cầu nào',
+              style: theme.textTheme.bodyLarge
+                  ?.copyWith(color: AppColors.textSecondary),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return RefreshIndicator(
+      onRefresh: () async => _loadData(),
+      child: ListView.builder(
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
+        itemCount: _items.length + 1, // +1 cho header count
+        itemBuilder: (context, index) {
+          if (index == 0) {
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Text(
+                'Tổng ${_items.length} yêu cầu',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: AppColors.textSecondary,
+                  fontWeight: FontWeight.w500,
                 ),
-              );
-            }
-
-            return RefreshIndicator(
-              onRefresh: () async => _loadList(),
-              child: ListView.builder(
-                padding: const EdgeInsets.all(16),
-                itemCount: state.corrections.length,
-                itemBuilder: (context, index) {
-                  return _buildCorrectionCard(
-                      theme, state.corrections[index]);
-                },
+                textAlign: TextAlign.end,
               ),
             );
           }
-
-          return const SizedBox.shrink();
+          return _buildItemCard(theme, _items[index - 1]);
         },
       ),
     );
   }
 
-  Widget _buildCorrectionCard(ThemeData theme, CorrectionModel correction) {
-    final attendance = correction.attendanceLog;
+  Widget _buildItemCard(ThemeData theme, ApprovalItemModel item) {
+    if (item.isCorrection) {
+      return _buildCorrectionCard(theme, item);
+    } else {
+      return _buildLeaveCard(theme, item);
+    }
+  }
 
+  Widget _buildCorrectionCard(ThemeData theme, ApprovalItemModel item) {
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       child: Padding(
@@ -127,110 +209,193 @@ class _CorrectionApprovalScreenState extends State<CorrectionApprovalScreen>
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Header: tên nhân viên + trạng thái
             Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
+                _typeChip('Bù công', AppColors.primary),
+                const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    correction.user?.name ?? 'Nhân viên #${correction.userId}',
+                    item.userName.isNotEmpty ? item.userName : 'Nhân viên #${item.userId}',
                     style: theme.textTheme.titleSmall
                         ?.copyWith(fontWeight: FontWeight.w700),
                   ),
                 ),
-                _statusChip(correction.status),
+                _statusChip(item.status),
               ],
             ),
-            if (correction.user != null) ...[
+            if (item.employeeCode.isNotEmpty) ...[
               const SizedBox(height: 4),
               Text(
-                '${correction.user!.employeeCode} - ${correction.user!.department}',
+                '${item.employeeCode} - ${item.department}',
                 style: theme.textTheme.bodySmall
                     ?.copyWith(color: AppColors.textSecondary),
               ),
             ],
             const Divider(height: 20),
-
-            // Thông tin ngày
-            _infoRow('Ngày chấm công',
-                attendance != null ? AppDateUtils.formatDate(attendance.date) : '---'),
+            _infoRow('Ngày chấm công', item.date.isNotEmpty ? item.date : '---'),
             const SizedBox(height: 6),
-            _infoRow('Trạng thái gốc', correction.originalStatusDisplay),
+            _infoRow('Trạng thái gốc', item.originalStatusDisplay),
             const SizedBox(height: 6),
-            if (attendance != null) ...[
+            if (item.checkInTime != null || item.checkOutTime != null) ...[
               _infoRow(
                 'Check-in / Check-out',
-                '${attendance.checkInTime != null ? AppDateUtils.formatTime(attendance.checkInTime!) : "--:--"}'
-                ' → '
-                '${attendance.checkOutTime != null ? AppDateUtils.formatTime(attendance.checkOutTime!) : "--:--"}',
+                '${item.checkInTime ?? "--:--"} → ${item.checkOutTime ?? "--:--"}',
               ),
               const SizedBox(height: 6),
             ],
-            _infoRow('Ngày gửi', AppDateUtils.formatDateTime(correction.createdAt)),
+            _infoRow('Ngày gửi', AppDateUtils.formatDateTime(item.createdAt)),
             const Divider(height: 20),
-
-            // Lý do
             Text('Lý do:',
                 style: theme.textTheme.bodySmall
                     ?.copyWith(color: AppColors.textSecondary)),
             const SizedBox(height: 4),
-            Text(correction.description,
-                style: theme.textTheme.bodyMedium),
-
-            // Audit log (nếu đã xử lý)
-            if (correction.processedAt != null) ...[
+            Text(item.description, style: theme.textTheme.bodyMedium),
+            if (item.processedAt != null) ...[
               const Divider(height: 20),
-              _infoRow(
-                'Người duyệt',
-                correction.processedBy?.name ?? '---',
-              ),
+              _infoRow('Người duyệt', item.processedByName.isNotEmpty ? item.processedByName : '---'),
               const SizedBox(height: 6),
-              _infoRow(
-                'Thời gian duyệt',
-                AppDateUtils.formatDateTime(correction.processedAt!),
-              ),
-              if (correction.managerNote.isNotEmpty) ...[
+              _infoRow('Thời gian duyệt',
+                  AppDateUtils.formatDateTime(item.processedAt!)),
+              if (item.managerNote.isNotEmpty) ...[
                 const SizedBox(height: 6),
                 Text('Ghi chú manager:',
                     style: theme.textTheme.bodySmall
                         ?.copyWith(color: AppColors.textSecondary)),
                 const SizedBox(height: 4),
-                Text(correction.managerNote,
+                Text(item.managerNote,
                     style: theme.textTheme.bodyMedium
                         ?.copyWith(fontStyle: FontStyle.italic)),
               ],
             ],
-
-            // Action buttons (chỉ cho pending)
-            if (correction.isPending) ...[
+            if (item.isPending) ...[
               const SizedBox(height: 16),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: () => _showNoteDialog(context, correction, false),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: AppColors.error,
-                        side: const BorderSide(color: AppColors.error),
-                      ),
-                      child: const Text('Từ chối'),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: ElevatedButton(
-                      onPressed: () => _showNoteDialog(context, correction, true),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.success,
-                      ),
-                      child: const Text('Duyệt'),
-                    ),
-                  ),
-                ],
+              _buildActionButtons(
+                context,
+                onApprove: () => _showNoteDialog(context, item, true),
+                onReject: () => _showNoteDialog(context, item, false),
               ),
             ],
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildLeaveCard(ThemeData theme, ApprovalItemModel item) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                _typeChip('Nghỉ phép', AppColors.calendarLeave),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    item.userName.isNotEmpty ? item.userName : 'Nhân viên #${item.userId}',
+                    style: theme.textTheme.titleSmall
+                        ?.copyWith(fontWeight: FontWeight.w700),
+                  ),
+                ),
+                _statusChip(item.status),
+              ],
+            ),
+            if (item.employeeCode.isNotEmpty) ...[
+              const SizedBox(height: 4),
+              Text(
+                '${item.employeeCode} - ${item.department}',
+                style: theme.textTheme.bodySmall
+                    ?.copyWith(color: AppColors.textSecondary),
+              ),
+            ],
+            const Divider(height: 20),
+            _infoRow('Ngày nghỉ', item.date),
+            const SizedBox(height: 6),
+            _infoRow('Loại nghỉ phép', item.leaveTypeDisplay),
+            const SizedBox(height: 6),
+            _infoRow('Khung giờ', item.timeRangeDisplay),
+            const SizedBox(height: 6),
+            _infoRow('Ngày gửi', AppDateUtils.formatDateTime(item.createdAt)),
+            if (item.detail.isNotEmpty && item.detail != item.leaveType) ...[
+              const SizedBox(height: 6),
+              _infoRow('Trạng thái gốc', item.originalStatusDisplay),
+            ],
+            const Divider(height: 20),
+            Text('Lý do:',
+                style: theme.textTheme.bodySmall
+                    ?.copyWith(color: AppColors.textSecondary)),
+            const SizedBox(height: 4),
+            Text(item.description, style: theme.textTheme.bodyMedium),
+            if (item.processedAt != null) ...[
+              const Divider(height: 20),
+              _infoRow('Người duyệt', item.processedByName.isNotEmpty ? item.processedByName : '---'),
+              const SizedBox(height: 6),
+              _infoRow('Thời gian duyệt',
+                  AppDateUtils.formatDateTime(item.processedAt!)),
+              if (item.managerNote.isNotEmpty) ...[
+                const SizedBox(height: 6),
+                Text('Ghi chú manager:',
+                    style: theme.textTheme.bodySmall
+                        ?.copyWith(color: AppColors.textSecondary)),
+                const SizedBox(height: 4),
+                Text(item.managerNote,
+                    style: theme.textTheme.bodyMedium
+                        ?.copyWith(fontStyle: FontStyle.italic)),
+              ],
+            ],
+            if (item.isPending) ...[
+              const SizedBox(height: 16),
+              _buildActionButtons(
+                context,
+                onApprove: () => _showNoteDialog(context, item, true),
+                onReject: () => _showNoteDialog(context, item, false),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildActionButtons(BuildContext context,
+      {required VoidCallback onApprove, required VoidCallback onReject}) {
+    return Row(
+      children: [
+        Expanded(
+          child: OutlinedButton(
+            onPressed: onReject,
+            style: OutlinedButton.styleFrom(
+              foregroundColor: AppColors.error,
+              side: const BorderSide(color: AppColors.error),
+            ),
+            child: const Text('Từ chối'),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: ElevatedButton(
+            onPressed: onApprove,
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.success),
+            child: const Text('Duyệt'),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _typeChip(String label, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.15),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.w700),
       ),
     );
   }
@@ -264,8 +429,7 @@ class _CorrectionApprovalScreenState extends State<CorrectionApprovalScreen>
       ),
       child: Text(
         label,
-        style: TextStyle(
-            color: color, fontSize: 12, fontWeight: FontWeight.w600),
+        style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.w600),
       ),
     );
   }
@@ -275,8 +439,7 @@ class _CorrectionApprovalScreenState extends State<CorrectionApprovalScreen>
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
         Text(label,
-            style: const TextStyle(
-                color: AppColors.textSecondary, fontSize: 13)),
+            style: const TextStyle(color: AppColors.textSecondary, fontSize: 13)),
         Flexible(
           child: Text(value,
               style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
@@ -286,23 +449,70 @@ class _CorrectionApprovalScreenState extends State<CorrectionApprovalScreen>
     );
   }
 
+  void _showBatchApproveConfirm(BuildContext context, int pendingCount) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Xác nhận duyệt tất cả'),
+        content: Text(
+          'Bạn có chắc muốn duyệt tất cả $pendingCount yêu cầu đang chờ?\n\n'
+          'Hành động này không thể hoàn tác.',
+        ),
+        actionsAlignment: MainAxisAlignment.center,
+        actionsPadding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+        actions: [
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('Huỷ'),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: ElevatedButton(
+                  onPressed: () {
+                    Navigator.pop(ctx);
+                    context.read<CorrectionBloc>().add(CorrectionBatchApproveRequested());
+                    context.read<LeaveBloc>().add(LeaveBatchApproveRequested());
+                  },
+                  style: ElevatedButton.styleFrom(backgroundColor: AppColors.success),
+                  child: const Text('Duyệt tất cả'),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
   void _showNoteDialog(
-      BuildContext context, CorrectionModel correction, bool isApprove) {
+      BuildContext context, ApprovalItemModel item, bool isApprove) {
     final noteController = TextEditingController();
     final action = isApprove ? 'Duyệt' : 'Từ chối';
+    final typeLabel = item.isCorrection ? 'bù công' : 'nghỉ phép';
 
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text('$action yêu cầu bù công'),
+        title: Text('$action yêu cầu $typeLabel'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Nhân viên: ${correction.user?.name ?? ""}',
+              'Nhân viên: ${item.userName}',
               style: const TextStyle(fontWeight: FontWeight.w600),
             ),
+            if (item.isLeave) ...[
+              const SizedBox(height: 4),
+              Text(
+                'Ngày: ${item.date} - ${item.leaveTypeDisplay}',
+                style: const TextStyle(color: AppColors.textSecondary),
+              ),
+            ],
             const SizedBox(height: 12),
             TextField(
               controller: noteController,
@@ -310,8 +520,8 @@ class _CorrectionApprovalScreenState extends State<CorrectionApprovalScreen>
               decoration: InputDecoration(
                 labelText: 'Ghi chú (không bắt buộc)',
                 hintText: isApprove
-                    ? 'Ví dụ: Đã xác nhận với phòng HC...'
-                    : 'Ví dụ: Lý do không hợp lệ...',
+                    ? 'Ví dụ: Đã xác nhận...'
+                    : 'Ví dụ: Không đủ điều kiện...',
                 border: const OutlineInputBorder(),
               ),
             ),
@@ -325,20 +535,39 @@ class _CorrectionApprovalScreenState extends State<CorrectionApprovalScreen>
           ElevatedButton(
             onPressed: () {
               Navigator.pop(ctx);
-              if (isApprove) {
-                context.read<CorrectionBloc>().add(
-                      CorrectionApproveRequested(
-                        correctionId: correction.id,
-                        managerNote: noteController.text.trim(),
-                      ),
-                    );
+              final note = noteController.text.trim();
+              if (item.isCorrection) {
+                if (isApprove) {
+                  context.read<CorrectionBloc>().add(
+                        CorrectionApproveRequested(
+                          correctionId: item.id,
+                          managerNote: note,
+                        ),
+                      );
+                } else {
+                  context.read<CorrectionBloc>().add(
+                        CorrectionRejectRequested(
+                          correctionId: item.id,
+                          managerNote: note,
+                        ),
+                      );
+                }
               } else {
-                context.read<CorrectionBloc>().add(
-                      CorrectionRejectRequested(
-                        correctionId: correction.id,
-                        managerNote: noteController.text.trim(),
-                      ),
-                    );
+                if (isApprove) {
+                  context.read<LeaveBloc>().add(
+                        LeaveApproveRequested(
+                          leaveId: item.id,
+                          managerNote: note,
+                        ),
+                      );
+                } else {
+                  context.read<LeaveBloc>().add(
+                        LeaveRejectRequested(
+                          leaveId: item.id,
+                          managerNote: note,
+                        ),
+                      );
+                }
               }
             },
             style: ElevatedButton.styleFrom(

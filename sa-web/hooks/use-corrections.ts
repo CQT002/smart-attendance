@@ -21,6 +21,21 @@ export function useCorrection(id: number) {
   });
 }
 
+export function useBatchApproveCorrections() {
+  const qc = useQueryClient();
+
+  return useMutation({
+    mutationFn: () => correctionService.batchApprove(),
+    onSuccess: (data) => {
+      toast.success(`Đã duyệt ${data.approved_count} yêu cầu bù công`);
+      qc.invalidateQueries({ queryKey: ["corrections"] });
+    },
+    onError: () => {
+      toast.error("Duyệt hàng loạt thất bại");
+    },
+  });
+}
+
 export function useProcessCorrection() {
   const qc = useQueryClient();
 

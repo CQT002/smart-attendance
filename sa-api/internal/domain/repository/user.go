@@ -48,4 +48,8 @@ type UserRepository interface {
 
 	// CountByBranch đếm số nhân viên theo chi nhánh
 	CountByBranch(ctx context.Context, branchID uint) (int64, error)
+
+	// AccrueLeaveBalance cộng thêm ngày phép cho tất cả user active
+	// Trả về số user được cộng phép
+	AccrueLeaveBalance(ctx context.Context, days float64) (int64, error)
 }

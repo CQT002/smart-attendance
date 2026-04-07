@@ -133,3 +133,26 @@ func (h *CorrectionHandler) Process(c echo.Context) error {
 
 	return response.OKWithMessage(c, "Xử lý yêu cầu chấm công bù thành công", result)
 }
+
+// BatchApprove godoc
+// @Summary Duyệt tất cả yêu cầu chấm công bù đang chờ
+// @Tags Admin - Correction
+// @Security BearerAuth
+// @Produce json
+// @Success 200 {object} response.Response
+// @Router /admin/corrections/batch-approve [post]
+func (h *CorrectionHandler) BatchApprove(c echo.Context) error {
+	processedByID := middleware.GetUserID(c)
+
+	var branchID *uint
+	if middleware.GetRole(c) == entity.RoleManager {
+		branchID = middleware.GetBranchID(c)
+	}
+
+	count, err := h.correctionUsecase.BatchApprove(c.Request().Context(), processedByID, branchID)
+	if err != nil {
+		return response.Error(c, err)
+	}
+
+	return response.OKWithMessage(c, "Đã duyệt hàng loạt", map[string]int64{"approved_count": count})
+}

@@ -1,3 +1,4 @@
+import '../../data/models/approval_item_model.dart';
 import '../../data/models/correction_model.dart';
 
 abstract class CorrectionRepository {
@@ -29,5 +30,15 @@ abstract class CorrectionRepository {
     required int correctionId,
     required String status, // 'approved' or 'rejected'
     String managerNote = '',
+  });
+
+  /// Manager: duyệt tất cả yêu cầu đang chờ
+  Future<int> batchApprove();
+
+  /// Manager: lấy danh sách tổng hợp duyệt (bù công + nghỉ phép) từ API unified
+  Future<List<ApprovalItemModel>> getApprovals({
+    String? status,
+    int page = 1,
+    int limit = 100,
   });
 }
