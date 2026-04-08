@@ -67,19 +67,28 @@ sa-api/
 │   │   │   ├── daily_summary.go           # Pre-computed aggregate per chi nhánh/ngày
 │   │   │   ├── wifi_config.go             # Cấu hình WiFi SSID/BSSID cho phép
 │   │   │   ├── gps_config.go              # Cấu hình GPS Geofencing (bán kính mét)
-│   │   │   └── shift.go                   # Ca làm việc
+│   │   │   ├── shift.go                   # Ca làm việc
+│   │   │   ├── correction.go             # Yêu cầu bổ sung công (ca chính thức + tăng ca)
+│   │   │   ├── leave.go                  # Yêu cầu nghỉ phép
+│   │   │   └── overtime.go               # Yêu cầu tăng ca (OT)
 │   │   ├── repository/                    # Interfaces cho data access
 │   │   │   ├── attendance.go              # AttendanceFilter, BranchTodayStats, TodayEmployeeFilter
 │   │   │   ├── branch.go
 │   │   │   ├── user.go
 │   │   │   ├── wifi_config.go
 │   │   │   ├── gps_config.go
-│   │   │   └── shift.go
+│   │   │   ├── shift.go
+│   │   │   ├── correction.go             # CorrectionFilter, CountByUserInMonth
+│   │   │   ├── leave.go                  # LeaveFilter
+│   │   │   └── overtime.go               # OvertimeFilter
 │   │   └── usecase/                       # Interfaces + request/response types
 │   │       ├── attendance.go              # CheckInRequest, CheckOutRequest
 │   │       ├── user.go                    # LoginRequest/Response, CreateUserRequest
 │   │       ├── branch.go
-│   │       └── report.go                  # TodayStatsFilter, DashboardStats, ReportFilter
+│   │       ├── report.go                  # TodayStatsFilter, DashboardStats, ReportFilter
+│   │       ├── correction.go             # CreateCorrectionRequest, ProcessCorrectionRequest
+│   │       ├── leave.go                  # CreateLeaveRequest, PendingApprovalItem
+│   │       └── overtime.go               # OvertimeCheckInRequest, ProcessOvertimeRequest
 │   │
 │   ├── infrastructure/
 │   │   ├── database/
@@ -107,8 +116,14 @@ sa-api/
 │   │   │   └── main.go                    # Login + JWT + quản lý nhân viên
 │   │   ├── branch/
 │   │   │   └── main.go                    # Quản lý chi nhánh
-│   │   └── report/
-│   │       └── main.go                    # Dashboard + today stats + báo cáo
+│   │   ├── report/
+│   │   │   └── main.go                    # Dashboard + today stats + báo cáo
+│   │   ├── correction/
+│   │   │   └── main.go                    # Bổ sung công (ca chính thức + tăng ca) + phê duyệt
+│   │   ├── leave/
+│   │   │   └── main.go                    # Nghỉ phép + phê duyệt tổng hợp
+│   │   └── overtime/
+│   │       └── main.go                    # Tăng ca: check-in/out + bo tròn + phê duyệt
 │   │
 │   ├── handler/
 │   │   ├── admin/                         # HTTP Handlers cho Admin Portal
@@ -116,10 +131,17 @@ sa-api/
 │   │   │   ├── user.go                    # CRUD nhân viên
 │   │   │   ├── branch.go                  # CRUD chi nhánh
 │   │   │   ├── attendance.go              # GetList, GetByID, GetSummary
-│   │   │   └── report.go                  # Dashboard, Today stats, Today employees, Reports
+│   │   │   ├── report.go                  # Dashboard, Today stats, Today employees, Reports
+│   │   │   ├── correction.go             # Duyệt bổ sung công
+│   │   │   ├── leave.go                  # Duyệt nghỉ phép + unified approvals
+│   │   │   ├── overtime.go               # Duyệt tăng ca
+│   │   │   └── wifi_config.go            # CRUD cấu hình WiFi
 │   │   └── user/                          # HTTP Handlers cho Employee App
 │   │       ├── auth.go                    # Login, Me, ChangePassword
 │   │       ├── attendance.go              # CheckIn, CheckOut, GetMyToday
+│   │       ├── correction.go             # Tạo yêu cầu bổ sung công
+│   │       ├── leave.go                  # Tạo yêu cầu nghỉ phép
+│   │       ├── overtime.go               # Check-in/out tăng ca
 │   │       └── helper.go                  # getUserIDFromContext()
 │   │
 │   ├── middleware/
@@ -208,7 +230,58 @@ Luồng kiểm tra trước mỗi check-in:
 | `half_day` | Tổng giờ làm < 50% `work_hours` của ca |
 | `absent` | Không có bản ghi chấm công trong ngày |
 
-### 5. Dashboard & Báo cáo
+### 5. Bổ sung công (Chấm công bù)
+
+Hỗ trợ 2 loại bổ sung công qua `correction_type`:
+
+#### Ca chính thức (`attendance`)
+- Nhân viên đăng ký bù cho ngày bị trễ/về sớm
+- Khi Manager duyệt → cập nhật check-in/out về giờ chuẩn của ca
+- Hạn mức: tối đa 4 credits/tháng (cấu hình `correction.max_per_month`)
+
+#### Tăng ca (`overtime`)
+- Nhân viên đăng ký bổ sung khi quên check-in hoặc check-out tăng ca
+- Khi tạo yêu cầu → tự động bổ sung thời gian thiếu (18:00 cho check-in, 22:00 cho check-out) và chuyển OT sang `pending`
+- Khi Manager duyệt → tính bo tròn và approve OT trong cùng transaction
+- Hạn mức riêng: tối đa 4 credits/tháng (cấu hình `correction.overtime_max_per_month`)
+
+### 6. Nghỉ phép
+
+- Employee đăng ký nghỉ phép (full_day, half_day_morning, half_day_afternoon)
+- Ngày quá khứ: tự detect absent → full_day, half_day → nửa ngày còn lại
+- Ngày tương lai: chọn loại nghỉ tự do
+- Kiểm tra số ngày phép còn lại trước khi tạo và khi duyệt
+- Khi duyệt → tạo/cập nhật attendance_log với status=leave trong transaction
+- Auto-reject yêu cầu PENDING tháng cũ vào ngày 1 hàng tháng
+- Cộng 1 ngày phép/tháng cho tất cả user active (scheduler)
+
+### 7. Tăng ca (Overtime)
+
+- Check-in OT chỉ được phép sau 17:00
+- Logic "Bo tròn" thời gian:
+  - Check-in trong [17:00-18:00] → tính từ 18:00; sau 18:00 → tính theo thực tế
+  - Check-out sau 22:00 → tính đến 22:00; trước 22:00 → tính theo thực tế
+- Thời gian tối đa: 4 giờ/ngày (18:00 - 22:00)
+- Status flow: `init` (thiếu check-in hoặc check-out) → `pending` (đủ cả hai) → `approved`/`rejected`
+- Hỗ trợ check-out mà không có check-in (quên check-in) → status `init`, cần bổ sung công
+- Giờ OT chỉ cộng vào quỹ lương sau khi Manager Approve
+- Auto-reject yêu cầu `init`/`pending` tháng cũ
+
+### 8. Phê duyệt tổng hợp
+
+- API unified `GET /admin/approvals` merge cả 3 loại: bổ sung công + nghỉ phép + tăng ca
+- Hỗ trợ filter theo status (pending/approved/rejected)
+- Sort theo created_at DESC, phân trang
+- Manager chỉ thấy yêu cầu của chi nhánh mình, không được self-approve
+- Batch approve cho tất cả yêu cầu pending
+
+### 9. Soft Delete
+
+- Tất cả bảng đều có `deleted_at` (sử dụng `gorm.DeletedAt`)
+- GORM tự động thêm `WHERE deleted_at IS NULL` vào mọi query
+- Unique indexes có `WHERE deleted_at IS NULL` để cho phép recreate sau khi soft-delete
+
+### 10. Dashboard & Báo cáo
 
 #### API thống kê hôm nay (`GET /api/v1/admin/reports/today`)
 
@@ -276,13 +349,16 @@ Filter `status`:
 ## Tính năng có thể phát triển thêm
 
 ### Nghiệp vụ
-- [ ] **Đơn xin phép / Nghỉ phép**: Module leave request với approval workflow
+- [x] ~~**Đơn xin phép / Nghỉ phép**: Module leave request với approval workflow~~ ✅ Đã triển khai
+- [x] ~~**Bổ sung công (Chấm công bù)**: Bù công cho ca chính thức và tăng ca~~ ✅ Đã triển khai
+- [x] ~~**Tăng ca (Overtime)**: Check-in/out OT, bo tròn 18:00-22:00, phê duyệt~~ ✅ Đã triển khai
 - [ ] **Chấm công khuôn mặt (Face Recognition)**: Tích hợp AI xác thực qua camera
 - [ ] **Push Notification**: Nhắc nhở check-in/out qua Firebase
-- [ ] **Export báo cáo**: Xuất Excel/PDF
+- [ ] **Export báo cáo**: Xuất Excel/PDF cho HR/Payroll
 - [ ] **QR Code Check-in**: QR code động thay thế GPS trong văn phòng
 - [ ] **Webhook Events**: Gửi event check-in/out tới hệ thống HR/Payroll
 - [ ] **Daily Summary Job**: Scheduler tính toán và upsert `daily_summaries` cuối ngày
+- [ ] **Quản lý ngày lễ**: Cấu hình ngày lễ theo năm, tự động tính công
 
 ### Kỹ thuật
 - [ ] **WebSocket Real-time**: Cập nhật dashboard live khi có nhân viên check-in
@@ -417,9 +493,18 @@ go run ./cmd/migration -cmd reset
 
 | ID | Nội dung |
 |----|---------|
-| `20250330000001` | Tạo 6 bảng core (branches, users, wifi_configs, gps_configs, shifts, attendance_logs) + seed admin account |
-| `20250330000002` | Tạo bảng `daily_summaries` (pre-computed aggregate cho dashboard) |
+| `20250330000001` | Tạo 6 bảng core (branches, users, wifi_configs, gps_configs, shifts, attendance_logs) + seed admin |
+| `20250330000002` | Tạo bảng `daily_summaries` |
 | `20250330000003` | Thêm partial indexes (fraud detection, BSSID lookup) |
+| `20250330000004` | Tạo bảng `attendance_corrections` (bổ sung công) |
+| `20250331000001` | Remove latitude/longitude from branches (moved to gps_configs) |
+| `20250406000001` | Thêm `credit_count` vào attendance_corrections |
+| `20250407000001` | Tạo bảng `leave_requests` (nghỉ phép) |
+| `20250407000002` | Thêm `leave_balance` vào users |
+| `20250407000003` | Bổ sung index hiệu năng cho leave/correction |
+| `20250407000004` | Tạo bảng `overtime_requests` (tăng ca) |
+| `20250407000005` | Thêm `deleted_at` vào tất cả bảng + bỏ column overtime + thêm overtime_request_id |
+| `20250407000006` | Thêm `correction_type`, `overtime_request_id` cho corrections + partial unique indexes |
 
 ### Quy ước khi thêm migration mới
 
@@ -471,6 +556,30 @@ Authorization: Bearer <access_token>
 | `POST` | `/attendance/check-in` | Check-in chấm công | All |
 | `POST` | `/attendance/check-out` | Check-out kết thúc ca | All |
 | `GET` | `/attendance/today` | Trạng thái hôm nay | All |
+| `GET` | `/attendance/history` | Lịch sử chấm công | All |
+
+#### Corrections — Bổ sung công (Employee App)
+| Method | Path | Mô tả | Role |
+|--------|------|-------|------|
+| `POST` | `/attendance/corrections` | Tạo yêu cầu bổ sung công (attendance hoặc overtime) | All |
+| `GET` | `/attendance/corrections` | Danh sách yêu cầu của bản thân | All |
+| `GET` | `/attendance/corrections/:id` | Chi tiết yêu cầu | All |
+
+#### Leaves — Nghỉ phép (Employee App)
+| Method | Path | Mô tả | Role |
+|--------|------|-------|------|
+| `POST` | `/attendance/leaves` | Tạo yêu cầu nghỉ phép | All |
+| `GET` | `/attendance/leaves` | Danh sách yêu cầu của bản thân | All |
+| `GET` | `/attendance/leaves/:id` | Chi tiết yêu cầu | All |
+
+#### Overtime — Tăng ca (Employee App)
+| Method | Path | Mô tả | Role |
+|--------|------|-------|------|
+| `POST` | `/attendance/overtime/check-in` | Check-in tăng ca (chỉ sau 17:00) | All |
+| `POST` | `/attendance/overtime/check-out` | Check-out tăng ca | All |
+| `GET` | `/attendance/overtime/today` | Trạng thái OT hôm nay | All |
+| `GET` | `/attendance/overtime` | Lịch sử tăng ca | All |
+| `GET` | `/attendance/overtime/:id` | Chi tiết yêu cầu OT | All |
 
 **Request check-in:**
 ```json
@@ -526,6 +635,36 @@ Authorization: Bearer <access_token>
 | `GET` | `/admin/attendance` | Danh sách log chấm công (filter + phân trang) | Admin, Manager |
 | `GET` | `/admin/attendance/:id` | Chi tiết bản ghi | Admin, Manager |
 | `GET` | `/admin/attendance/summary/:user_id` | Thống kê theo nhân viên | Admin, Manager |
+
+#### Corrections — Bổ sung công (Admin)
+| Method | Path | Mô tả | Role |
+|--------|------|-------|------|
+| `GET` | `/admin/corrections` | Danh sách yêu cầu bổ sung công | Admin, Manager |
+| `GET` | `/admin/corrections/:id` | Chi tiết yêu cầu | Admin, Manager |
+| `PUT` | `/admin/corrections/:id/process` | Duyệt/từ chối yêu cầu | Admin, Manager |
+| `POST` | `/admin/corrections/batch-approve` | Duyệt tất cả pending | Admin, Manager |
+
+#### Leaves — Nghỉ phép (Admin)
+| Method | Path | Mô tả | Role |
+|--------|------|-------|------|
+| `GET` | `/admin/leaves` | Danh sách yêu cầu nghỉ phép | Admin, Manager |
+| `GET` | `/admin/leaves/:id` | Chi tiết yêu cầu | Admin, Manager |
+| `PUT` | `/admin/leaves/:id/process` | Duyệt/từ chối yêu cầu | Admin, Manager |
+| `POST` | `/admin/leaves/batch-approve` | Duyệt tất cả pending | Admin, Manager |
+
+#### Overtime — Tăng ca (Admin)
+| Method | Path | Mô tả | Role |
+|--------|------|-------|------|
+| `GET` | `/admin/overtime` | Danh sách yêu cầu tăng ca | Admin, Manager |
+| `GET` | `/admin/overtime/:id` | Chi tiết yêu cầu | Admin, Manager |
+| `PUT` | `/admin/overtime/:id/process` | Duyệt/từ chối yêu cầu | Admin, Manager |
+| `POST` | `/admin/overtime/batch-approve` | Duyệt tất cả pending | Admin, Manager |
+
+#### Phê duyệt tổng hợp
+| Method | Path | Mô tả | Role |
+|--------|------|-------|------|
+| `GET` | `/admin/approvals` | Danh sách tổng hợp (bổ sung công + nghỉ phép + tăng ca) | Admin, Manager |
+| `GET` | `/admin/approvals/pending` | Chỉ yêu cầu đang chờ duyệt | Admin, Manager |
 
 #### Reports & Dashboard
 | Method | Path | Mô tả | Role |
@@ -642,9 +781,41 @@ attendance_logs            ← ~1.8M rows/năm với 5000 nhân viên
 ├── check_out_time, check_out_lat/lng, check_out_method
 ├── device_id, device_model, ip_address, app_version
 ├── is_fake_gps, is_vpn, fraud_note    ← Anti-fraud
-├── status: present|late|early_leave|absent|half_day
-├── work_hours, overtime
+├── status: present|late|early_leave|absent|half_day|leave|half_day_leave
+├── work_hours, overtime_request_id → overtime_requests.id
+├── deleted_at                          ← Soft delete
 └── UNIQUE(user_id, date)              ← Một user một bản ghi/ngày
+
+attendance_corrections     ← Yêu cầu bổ sung công
+├── id, correction_type: attendance|overtime
+├── user_id, branch_id
+├── attendance_log_id → attendance_logs.id   (nullable, dùng cho ca chính thức)
+├── overtime_request_id → overtime_requests.id (nullable, dùng cho tăng ca)
+├── original_status, credit_count, description
+├── status: pending|approved|rejected
+├── processed_by_id, processed_at, manager_note
+├── deleted_at
+├── UNIQUE(attendance_log_id) WHERE NOT NULL AND deleted_at IS NULL
+└── UNIQUE(overtime_request_id) WHERE NOT NULL AND deleted_at IS NULL
+
+leave_requests             ← Yêu cầu nghỉ phép
+├── id, user_id, branch_id
+├── leave_date, leave_type: full_day|half_day_morning|half_day_afternoon
+├── time_from, time_to, original_status, description
+├── status: pending|approved|rejected
+├── processed_by_id, processed_at, manager_note
+├── deleted_at
+└── UNIQUE(user_id, leave_date)
+
+overtime_requests          ← Yêu cầu tăng ca
+├── id, user_id, branch_id, date
+├── actual_checkin, actual_checkout     ← Thời gian thực tế (timestamptz)
+├── calculated_start, calculated_end   ← Sau bo tròn (tính khi duyệt)
+├── total_hours                        ← decimal(5,2)
+├── status: init|pending|approved|rejected
+├── manager_id, processed_at, manager_note
+├── deleted_at
+└── UNIQUE(user_id, date)
 
 daily_summaries            ← Pre-computed aggregate, thay thế query nặng trên attendance_logs
 ├── id, branch_id → branches.id, date
@@ -652,7 +823,7 @@ daily_summaries            ← Pre-computed aggregate, thay thế query nặng t
 ├── early_leave_count, half_day_count, absent_count
 ├── total_work_hours, total_overtime, fraud_count
 ├── attendance_rate (%), on_time_rate (%)
-├── computed_at                         ← Biết data có stale không (IsStale() > 1h)
+├── computed_at, deleted_at
 └── UNIQUE(branch_id, date)
 ```
 

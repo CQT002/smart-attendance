@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
+import '../../core/theme/app_colors.dart';
 import '../blocs/overtime/overtime_bloc.dart';
 import '../blocs/overtime/overtime_event.dart';
 import '../blocs/overtime/overtime_state.dart';
@@ -142,7 +143,7 @@ class _OvertimeScreenState extends State<OvertimeScreen> {
             const Text('Chưa có tăng ca hôm nay',
                 style: TextStyle(fontSize: 16, color: Colors.grey)),
             const SizedBox(height: 4),
-            const Text('Bấm Check-in để bắt đầu ca tăng ca',
+            const Text('Bấm Check-in hoặc Check-out để bắt đầu',
                 style: TextStyle(fontSize: 13, color: Colors.grey)),
           ],
         ),
@@ -156,37 +157,7 @@ class _OvertimeScreenState extends State<OvertimeScreen> {
     final hasCheckedIn = todayOt?.isCheckedIn ?? false;
     final hasCheckedOut = todayOt?.isCheckedOut ?? false;
 
-    if (!hasCheckedIn) {
-      // Chưa check-in → hiện nút Check-in
-      return ElevatedButton.icon(
-        onPressed: isLoading
-            ? null
-            : () => context.read<OvertimeBloc>().add(OvertimeCheckInRequested()),
-        icon: const Icon(Icons.login),
-        label: const Text('Check-in Tăng ca'),
-        style: ElevatedButton.styleFrom(
-          padding: const EdgeInsets.symmetric(vertical: 14),
-          backgroundColor: Colors.blue,
-          foregroundColor: Colors.white,
-        ),
-      );
-    } else if (!hasCheckedOut) {
-      // Đã check-in, chưa check-out → hiện nút Check-out
-      return ElevatedButton.icon(
-        onPressed: isLoading
-            ? null
-            : () => context.read<OvertimeBloc>().add(
-                  OvertimeCheckOutRequested(overtimeId: todayOt?.id),
-                ),
-        icon: const Icon(Icons.logout),
-        label: const Text('Check-out Tăng ca'),
-        style: ElevatedButton.styleFrom(
-          padding: const EdgeInsets.symmetric(vertical: 14),
-          backgroundColor: Colors.orange,
-          foregroundColor: Colors.white,
-        ),
-      );
-    } else {
+    if (hasCheckedIn && hasCheckedOut) {
       // Đã hoàn tất
       return Container(
         padding: const EdgeInsets.all(16),
@@ -205,6 +176,72 @@ class _OvertimeScreenState extends State<OvertimeScreen> {
         ),
       );
     }
+
+    // Hiển thị cả 2 nút Check-in và Check-out — đồng bộ style với Trang chủ
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: ElevatedButton(
+                onPressed: isLoading || hasCheckedIn
+                    ? null
+                    : () => context.read<OvertimeBloc>().add(OvertimeCheckInRequested()),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.orange,
+                  disabledBackgroundColor: Colors.orange.withOpacity(0.5),
+                  foregroundColor: Colors.white,
+                  elevation: 0,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(30),
+                  ),
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                ),
+                child: isLoading
+                    ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                    : Text(
+                        hasCheckedIn ? 'ĐÃ CHECK-IN' : 'CHECK-IN',
+                        style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
+                      ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: ElevatedButton(
+                onPressed: isLoading || hasCheckedOut
+                    ? null
+                    : () => context.read<OvertimeBloc>().add(
+                          OvertimeCheckOutRequested(overtimeId: todayOt?.id),
+                        ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  disabledBackgroundColor: AppColors.divider.withOpacity(0.5),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(30),
+                  ),
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                ),
+                child: isLoading
+                    ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                    : const Text(
+                        'CHECK-OUT',
+                        style: TextStyle(fontWeight: FontWeight.bold),
+                      ),
+              ),
+            ),
+          ],
+        ),
+        if (!hasCheckedIn) ...[
+          const SizedBox(height: 8),
+          Text(
+            'Nếu quên Check-in, bạn vẫn có thể Check-out. Sau đó tạo yêu cầu chấm công bù để bổ sung.',
+            style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+            textAlign: TextAlign.center,
+          ),
+        ],
+      ],
+    );
   }
 
   Widget _buildStatusChip(String status) {

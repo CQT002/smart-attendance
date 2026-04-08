@@ -116,6 +116,7 @@ var (
 	ErrOvertimeSelfApprove       = New(http.StatusForbidden, "OT_SELF_APPROVE", "Manager không được tự duyệt yêu cầu tăng ca của chính mình")
 	ErrOvertimeNotCompleted      = New(http.StatusBadRequest, "OT_NOT_COMPLETED", "Yêu cầu tăng ca chưa hoàn tất (thiếu check-out)")
 	ErrOvertimeAlreadyExists     = New(http.StatusConflict, "OT_ALREADY_EXISTS", "Ngày này đã có yêu cầu tăng ca")
+	ErrOvertimeCheckOutTooEarly  = New(http.StatusBadRequest, "OT_CHECKOUT_TOO_EARLY", "Chỉ được check-out tăng ca sau 18:00")
 )
 
 // Validation errors

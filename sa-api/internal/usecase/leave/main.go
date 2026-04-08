@@ -80,8 +80,19 @@ func (u *leaveUsecase) Create(ctx context.Context, req usecase.CreateLeaveReques
 	// Lấy shift để biết khung giờ chuẩn
 	shift, _ := u.shiftRepo.FindDefault(ctx, *user.BranchID)
 	if shift == nil {
-		shift = &entity.Shift{StartTime: "08:00", EndTime: "17:00", WorkHours: 8}
+		shift = &entity.Shift{StartTime: "08:00", EndTime: "17:00", WorkHours: 8, MorningEnd: "12:00", AfternoonStart: "13:00"}
 	}
+
+	// Lấy khung giờ nghỉ trưa từ shift
+	morningEnd := shift.MorningEnd
+	if morningEnd == "" {
+		morningEnd = "12:00"
+	}
+	afternoonStart := shift.AfternoonStart
+	if afternoonStart == "" {
+		afternoonStart = "13:00"
+	}
+	morningEndH, _ := parseTime(morningEnd)
 
 	now := utils.Now()
 	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, utils.HCM)
@@ -109,20 +120,20 @@ func (u *leaveUsecase) Create(ctx context.Context, req usecase.CreateLeaveReques
 			originalStatus = entity.StatusHalfDay
 			if attendLog.CheckInTime != nil {
 				checkInHour := attendLog.CheckInTime.In(utils.HCM).Hour()
-				if checkInHour < 12 {
+				if checkInHour < morningEndH {
 					// Đã làm buổi sáng → nghỉ buổi chiều
 					leaveType = entity.LeaveTypeHalfDayAfternoon
-					timeFrom = "13:00"
+					timeFrom = afternoonStart
 					timeTo = shift.EndTime
 				} else {
 					// Đã làm buổi chiều → nghỉ buổi sáng
 					leaveType = entity.LeaveTypeHalfDayMorning
 					timeFrom = shift.StartTime
-					timeTo = "12:00"
+					timeTo = morningEnd
 				}
 			} else {
 				leaveType = entity.LeaveTypeHalfDayAfternoon
-				timeFrom = "13:00"
+				timeFrom = afternoonStart
 				timeTo = shift.EndTime
 			}
 		} else {
@@ -143,9 +154,9 @@ func (u *leaveUsecase) Create(ctx context.Context, req usecase.CreateLeaveReques
 			timeTo = shift.EndTime
 		case entity.LeaveTypeHalfDayMorning:
 			timeFrom = shift.StartTime
-			timeTo = "12:00"
+			timeTo = morningEnd
 		case entity.LeaveTypeHalfDayAfternoon:
-			timeFrom = "13:00"
+			timeFrom = afternoonStart
 			timeTo = shift.EndTime
 		}
 	}
@@ -231,7 +242,7 @@ func (u *leaveUsecase) Process(ctx context.Context, req usecase.ProcessLeaveRequ
 		// Lấy shift để tính giờ
 		shift, _ := u.shiftRepo.FindDefault(ctx, leave.BranchID)
 		if shift == nil {
-			shift = &entity.Shift{StartTime: "08:00", EndTime: "17:00", WorkHours: 8}
+			shift = &entity.Shift{StartTime: "08:00", EndTime: "17:00", WorkHours: 8, MorningEnd: "12:00", AfternoonStart: "13:00"}
 		}
 
 		// Tính số ngày phép cần trừ

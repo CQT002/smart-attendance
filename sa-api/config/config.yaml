@@ -31,3 +31,10 @@ jwt:
 correction:
   max_per_month: 4            # Hạn mức bù công ca chính thức tối đa mỗi tháng (tính theo credit)
   overtime_max_per_month: 4   # Hạn mức bù công tăng ca tối đa mỗi tháng
+
+attendance:
+  max_suspicious_count: 3     # Số lần vi phạm tối đa trong N ngày trước khi block check-in
+  suspicious_window_days: 7   # Số ngày kiểm tra lịch sử vi phạm
+
+overtime:
+  max_hours_per_day: 4        # Số giờ OT tối đa mỗi ngày

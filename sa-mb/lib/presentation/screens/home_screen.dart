@@ -192,6 +192,8 @@ class _HomeTabState extends State<_HomeTab> {
         onRefresh: () async {
           _fetchToday();
           _fetchHistory();
+          _fetchTodayOvertime();
+          _fetchWeekOvertime();
           setState(() {});
         },
         child: SingleChildScrollView(

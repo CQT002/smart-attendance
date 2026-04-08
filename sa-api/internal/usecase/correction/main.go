@@ -218,14 +218,26 @@ func (u *correctionUsecase) createOvertimeCorrection(ctx context.Context, req us
 			"status": entity.OvertimeStatusPending,
 		}
 
+		// Lấy OT config từ shift của branch
+		otShift, _ := u.shiftRepo.FindDefault(ctx, otReq.BranchID)
+		otStartHour, otEndHour := 18, 22
+		if otShift != nil {
+			if otShift.OTStartHour > 0 {
+				otStartHour = otShift.OTStartHour
+			}
+			if otShift.OTEndHour > 0 {
+				otEndHour = otShift.OTEndHour
+			}
+		}
+
 		switch originalStatus {
 		case entity.StatusMissingCheckout:
-			// Có check-in, thiếu check-out → bổ sung 22:00
-			otEnd := time.Date(otDate.Year(), otDate.Month(), otDate.Day(), 22, 0, 0, 0, utils.HCM)
+			// Có check-in, thiếu check-out → bổ sung OTEndHour
+			otEnd := time.Date(otDate.Year(), otDate.Month(), otDate.Day(), otEndHour, 0, 0, 0, utils.HCM)
 			otUpdates["actual_checkout"] = otEnd
 		case entity.StatusMissingCheckin:
-			// Có check-out, thiếu check-in → bổ sung 18:00
-			otStart := time.Date(otDate.Year(), otDate.Month(), otDate.Day(), 18, 0, 0, 0, utils.HCM)
+			// Có check-out, thiếu check-in → bổ sung OTStartHour
+			otStart := time.Date(otDate.Year(), otDate.Month(), otDate.Day(), otStartHour, 0, 0, 0, utils.HCM)
 			otUpdates["actual_checkin"] = otStart
 		}
 
@@ -320,7 +332,7 @@ func (u *correctionUsecase) processAttendanceCorrection(
 
 	shift, _ := u.shiftRepo.FindDefault(ctx, correction.BranchID)
 	if shift == nil {
-		shift = &entity.Shift{StartTime: "08:00", EndTime: "17:00", WorkHours: 8}
+		shift = &entity.Shift{StartTime: "08:00", EndTime: "17:00", WorkHours: 8, MorningEnd: "12:00", AfternoonStart: "13:00"}
 	}
 
 	err = u.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
@@ -410,17 +422,30 @@ func (u *correctionUsecase) processOvertimeCorrection(
 		return apperrors.ErrOvertimeNotCompleted
 	}
 
+	// Lấy OT config từ shift của branch
+	otShift, _ := u.shiftRepo.FindDefault(ctx, correction.BranchID)
+	otStartHour, otEndHour := 18, 22
+	maxOTHours := 4.0
+	if otShift != nil {
+		if otShift.OTStartHour > 0 {
+			otStartHour = otShift.OTStartHour
+		}
+		if otShift.OTEndHour > 0 {
+			otEndHour = otShift.OTEndHour
+		}
+	}
+
 	err = u.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		// Tính bo tròn
 		otDate := otReq.Date
-		calcStart := clampOTStart(*otReq.ActualCheckin, otDate)
-		calcEnd := clampOTEnd(*otReq.ActualCheckout, otDate)
+		calcStart := clampOTStart(*otReq.ActualCheckin, otDate, otStartHour)
+		calcEnd := clampOTEnd(*otReq.ActualCheckout, otDate, otEndHour)
 		totalHours := calcEnd.Sub(calcStart).Hours()
 		if totalHours < 0 {
 			totalHours = 0
 		}
-		if totalHours > 4 {
-			totalHours = 4
+		if totalHours > maxOTHours {
+			totalHours = maxOTHours
 		}
 		totalHours = float64(int(totalHours*100)) / 100
 
@@ -458,18 +483,18 @@ func (u *correctionUsecase) processOvertimeCorrection(
 	return nil
 }
 
-// clampOTStart trả về Max(actualCheckin, 18:00)
-func clampOTStart(actual time.Time, date time.Time) time.Time {
-	otStart := time.Date(date.Year(), date.Month(), date.Day(), 18, 0, 0, 0, utils.HCM)
+// clampOTStart trả về Max(actualCheckin, startHour:00)
+func clampOTStart(actual time.Time, date time.Time, startHour int) time.Time {
+	otStart := time.Date(date.Year(), date.Month(), date.Day(), startHour, 0, 0, 0, utils.HCM)
 	if actual.Before(otStart) {
 		return otStart
 	}
 	return actual
 }
 
-// clampOTEnd trả về Min(actualCheckout, 22:00)
-func clampOTEnd(actual time.Time, date time.Time) time.Time {
-	otEnd := time.Date(date.Year(), date.Month(), date.Day(), 22, 0, 0, 0, utils.HCM)
+// clampOTEnd trả về Min(actualCheckout, endHour:00)
+func clampOTEnd(actual time.Time, date time.Time, endHour int) time.Time {
+	otEnd := time.Date(date.Year(), date.Month(), date.Day(), endHour, 0, 0, 0, utils.HCM)
 	if actual.After(otEnd) {
 		return otEnd
 	}

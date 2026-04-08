@@ -14,6 +14,8 @@ type Config struct {
 	Redis      RedisConfig      `mapstructure:"redis"`
 	JWT        JWTConfig        `mapstructure:"jwt"`
 	Correction CorrectionConfig `mapstructure:"correction"`
+	Attendance AttendanceConfig `mapstructure:"attendance"`
+	Overtime   OvertimeConfig   `mapstructure:"overtime"`
 }
 
 type AppConfig struct {
@@ -53,6 +55,15 @@ type JWTConfig struct {
 type CorrectionConfig struct {
 	MaxPerMonth         int `mapstructure:"max_per_month"`          // Hạn mức bù công ca chính thức tối đa mỗi tháng (tính theo credit)
 	OvertimeMaxPerMonth int `mapstructure:"overtime_max_per_month"` // Hạn mức bù công tăng ca tối đa mỗi tháng
+}
+
+type AttendanceConfig struct {
+	MaxSuspiciousCount int `mapstructure:"max_suspicious_count"` // Số lần vi phạm tối đa trong 7 ngày trước khi block (default: 3)
+	SuspiciousWindowDays int `mapstructure:"suspicious_window_days"` // Số ngày kiểm tra lịch sử vi phạm (default: 7)
+}
+
+type OvertimeConfig struct {
+	MaxHoursPerDay float64 `mapstructure:"max_hours_per_day"` // Số giờ OT tối đa mỗi ngày (default: 4)
 }
 
 // Load đọc cấu hình từ config.yaml, sau đó override bằng biến môi trường nếu có

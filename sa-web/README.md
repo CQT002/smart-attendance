@@ -29,6 +29,7 @@
 | **Quản lý Chi nhánh** | CRUD đầy đủ, cấu hình GPS Geofencing (lat/lng/radius), tìm kiếm, phân trang |
 | **Quản lý Nhân viên** | Danh sách 5.000 nhân viên, lọc theo chi nhánh/vai trò, gán chi nhánh, reset mật khẩu |
 | **Dữ liệu Chấm công** | DataTable với filter ngày/chi nhánh/trạng thái, hiển thị phương thức WiFi/GPS, cờ gian lận |
+| **Phê duyệt tổng hợp** | Duyệt bổ sung công (ca chính thức + tăng ca) + nghỉ phép + tăng ca. Filter theo loại/trạng thái, chi tiết OT (giờ thực tế vs giờ tính), batch approve |
 | **Báo cáo** | Báo cáo theo nhân viên và chi nhánh, chọn kỳ daily/weekly/monthly/custom, biểu đồ so sánh |
 
 **Trải nghiệm người dùng:**
@@ -144,6 +145,8 @@ sa-web/
 │       │   └── page.tsx              # Danh sách nhân viên + CRUD
 │       ├── attendance/
 │       │   └── page.tsx              # DataTable logs chấm công
+│       ├── corrections/
+│       │   └── page.tsx              # Phê duyệt tổng hợp (bổ sung công + nghỉ phép + tăng ca)
 │       └── reports/
 │           └── page.tsx              # Báo cáo NV/Chi nhánh + biểu đồ
 │
@@ -180,6 +183,9 @@ sa-web/
 │   ├── use-users.ts                  # useUsers, useCreateUser, useUpdateUser...
 │   ├── use-branches.ts               # useBranches, useActiveBranches, useCreateBranch...
 │   ├── use-attendance.ts             # useAttendanceLogs, useAttendanceSummary
+│   ├── use-corrections.ts            # useCorrections, useProcessCorrection, useBatchApprove
+│   ├── use-leaves.ts                 # useLeaves, useProcessLeave, usePendingApprovals
+│   ├── use-overtime.ts               # useOvertime, useProcessOvertime, useBatchApproveOvertime
 │   └── use-reports.ts                # useDashboardStats (refetch 5 phút), useTodayBranchStats...
 │
 ├── services/                         # API service layer
@@ -187,6 +193,9 @@ sa-web/
 │   ├── user.service.ts               # getList, getById, create, update, delete, resetPassword
 │   ├── branch.service.ts             # getList, getActive, getById, create, update, delete
 │   ├── attendance.service.ts         # getList, getById, getSummary
+│   ├── correction.service.ts         # getList, getById, process, batchApprove
+│   ├── leave.service.ts              # getList, getById, process, batchApprove, getPendingApprovals
+│   ├── overtime.service.ts           # getList, getById, process, batchApprove
 │   └── report.service.ts             # getDashboardStats, getTodayBranchStats, getAttendanceReport...
 │
 ├── lib/
@@ -200,6 +209,9 @@ sa-web/
 │   ├── user.ts                       # User, CreateUserRequest, UpdateUserRequest, UserFilter
 │   ├── branch.ts                     # Branch, WifiNetwork, CreateBranchRequest, BranchFilter
 │   ├── attendance.ts                 # AttendanceLog, AttendanceStatus, AttendanceFilter
+│   ├── correction.ts                 # AttendanceCorrection, CorrectionType, CorrectionFilter
+│   ├── leave.ts                      # LeaveRequest, PendingApprovalItem, LeaveFilter
+│   ├── overtime.ts                   # OvertimeRequest, OvertimeFilter, ProcessOvertimeRequest
 │   ├── report.ts                     # DashboardStats, BranchTodayStats, ReportFilter
 │   └── index.ts                      # Re-export tất cả
 │
@@ -347,6 +359,19 @@ NEXT_PUBLIC_API_URL=https://api.hdbank.vn/api/v1
 | Trạng thái | `present` / `late` / `early_leave` / `absent` / `half_day` — mỗi loại badge màu riêng |
 | Gian lận | Cột "Gian lận" hiện badge đỏ `GPS giả` hoặc `VPN` nếu `is_fake_gps` hoặc `is_vpn = true` |
 | Phương thức | Check-in method `WIFI` / `GPS` hiển thị dưới giờ vào |
+
+### Phê duyệt tổng hợp — `/corrections`
+
+| Mục | Chi tiết |
+|---|---|
+| API | `GET /admin/corrections`, `GET /admin/leaves`, `GET /admin/overtime` — fetch 3 nguồn song song |
+| API | `GET /admin/approvals` — unified list đã merge sẵn |
+| Filter | Trạng thái (chờ duyệt/đã duyệt/từ chối) + Loại (bổ sung công/nghỉ phép/tăng ca) |
+| Loại bổ sung công | `attendance` (ca chính thức) + `overtime` (tăng ca) — label "[OT]" cho overtime |
+| Tăng ca detail | Hiển thị: Giờ thực tế (Actual) vs Giờ hệ thống tính (Calculated), tổng giờ OT |
+| Status mapping | `init`: Chưa hoàn tất · `pending`: Chờ duyệt · `approved`: Đã duyệt · `rejected`: Từ chối |
+| Actions | Xem chi tiết, Duyệt/Từ chối (với ghi chú), Duyệt tất cả |
+| Batch approve | Duyệt đồng thời cả 3 loại (corrections + leaves + overtime) |
 
 ### Báo cáo — `/reports`
 

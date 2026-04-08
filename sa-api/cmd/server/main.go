@@ -75,8 +75,6 @@ func main() {
 		os.Exit(1)
 	}
 
-
-
 	// ── 4. Connect Redis (graceful degradation nếu không kết nối được) ──
 	redisCache, err := cache.NewRedisCache(&cfg.Redis)
 	if err != nil {
@@ -94,17 +92,18 @@ func main() {
 	correctionRepo := repository.NewCorrectionRepository(db)
 	leaveRepo := repository.NewLeaveRepository(db)
 	overtimeRepo := repository.NewOvertimeRepository(db)
+	schedulerRepo := repository.NewSchedulerRepository(db)
 
 	// ── 6. Init Usecases ──
 	userUC := ucUser.NewUserUsecase(userRepo, redisCache, cfg.JWT)
 	branchUC := ucBranch.NewBranchUsecase(branchRepo, gpsConfigRepo, redisCache)
 	attendanceUC := ucAttendance.NewAttendanceUsecase(
-		attendanceRepo, userRepo, wifiConfigRepo, gpsConfigRepo, shiftRepo, redisCache,
+		attendanceRepo, userRepo, wifiConfigRepo, gpsConfigRepo, shiftRepo, redisCache, cfg.Attendance,
 	)
 	reportUC := ucReport.NewReportUsecase(attendanceRepo, userRepo, branchRepo, redisCache)
 	correctionUC := ucCorrection.NewCorrectionUsecase(correctionRepo, attendanceRepo, overtimeRepo, userRepo, shiftRepo, db, cfg.Correction)
 	leaveUC := ucLeave.NewLeaveUsecase(leaveRepo, correctionRepo, overtimeRepo, attendanceRepo, userRepo, shiftRepo, db)
-	overtimeUC := ucOvertime.NewOvertimeUsecase(overtimeRepo, userRepo, attendanceRepo, db)
+	overtimeUC := ucOvertime.NewOvertimeUsecase(overtimeRepo, userRepo, attendanceRepo, shiftRepo, db, cfg.Overtime)
 
 	// ── 7. Init Handlers ──
 	// User app handlers
@@ -124,10 +123,18 @@ func main() {
 	reportH := handlerAdmin.NewReportHandler(reportUC)
 	wifiConfigH := handlerAdmin.NewWiFiConfigHandler(wifiConfigRepo)
 
-	// ── 8. Start background schedulers ──
-	scheduler.StartCorrectionAutoReject(correctionUC)
-	scheduler.StartLeaveAutoReject(leaveUC)
-	scheduler.StartLeaveAccrual(leaveUC)
+	// ── 8. Start background schedulers (DB-driven) ──
+	schedulerMgr := scheduler.NewManager(schedulerRepo)
+	schedulerMgr.Register("correction_auto_reject", func(ctx context.Context) (int64, error) {
+		return correctionUC.AutoRejectExpired(ctx)
+	})
+	schedulerMgr.Register("leave_auto_reject", func(ctx context.Context) (int64, error) {
+		return leaveUC.AutoRejectExpired(ctx)
+	})
+	schedulerMgr.Register("leave_accrual", func(ctx context.Context) (int64, error) {
+		return leaveUC.AccrueMonthlyLeave(ctx)
+	})
+	schedulerMgr.Start()
 
 	// ── 9. Setup Echo Router ──
 	e := echo.New()
@@ -153,7 +160,7 @@ func main() {
 		JWTSecret:              cfg.JWT.Secret,
 	})
 
-	// ── 9. Graceful Shutdown ──
+	// ── 10. Graceful Shutdown ──
 	go func() {
 		addr := ":" + cfg.App.Port
 		slog.Info("server listening", "addr", addr)

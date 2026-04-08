@@ -553,11 +553,11 @@ sa-mb/
 │   │       ├── device_service.dart     # device_id, model, app version
 │   │       └── security_service.dart   # Anti-fraud: VPN + Fake GPS detect
 │   ├── domain/
-│   │   └── repositories/           # Abstract interfaces (Clean Architecture)
+│   │   └── repositories/           # Abstract interfaces (auth, attendance, correction, leave, overtime)
 │   └── presentation/
-│       ├── blocs/                  # BLoC state management (auth, attendance)
-│       ├── screens/                # Login, Home, CheckIn, History
-│       └── widgets/                # AttendanceCard, StatusBadge, LoadingOverlay
+│       ├── blocs/                  # BLoC: auth, attendance, correction, leave, overtime
+│       ├── screens/                # Login, Home, CheckIn, History, Correction, Leave, Overtime, Approval
+│       └── widgets/                # StatusBadge, AppToast, LoadingOverlay
 ├── assets/                         # Images, icons
 └── pubspec.yaml
 ```
@@ -566,44 +566,63 @@ sa-mb/
 
 ## 8. Tính năng & Lộ trình phát triển
 
-Hệ thống hiện tại đã đáp ứng Core Flow xuất sắc cho việc điểm danh bảo mật. Dưới đây là danh sách tính năng hiện hữu và lộ trình nâng cấp thành Hệ thống Quản trị Nhân sự (HRIS) toàn diện.
-
-### 8.1. Các tính năng hiện hữu (Current Features)
+### 8.1. Các tính năng đã triển khai (Implemented)
 
 #### Employee App (Mobile)
-- **Điểm danh an toàn:** Hỗ trợ check-in/out qua GPS và WiFi (SSID/BSSID).
-- **Anti-Fraud:** Chống giả mạo vị trí qua cơ chế nhận diện Fake GPS và Fake VPN.
-- **Lịch sử cá nhân:** Xem trạng thái điểm danh hôm nay và lịch sử theo thời gian.
-- **Bảo mật thiết bị:** Xác định danh tính qua Device ID, App Version.
+- **Điểm danh an toàn:** Check-in/out qua GPS và WiFi (SSID/BSSID) với anti-fraud (Fake GPS, VPN detection).
+- **Lịch sử chấm công:** Calendar tháng với trạng thái từng ngày, OT dot indicator, bottom sheet chi tiết.
+- **Bổ sung công (Chấm công bù):**
+  - Ca chính thức: đăng ký bù cho ngày đi trễ/về sớm (tối đa 4 credits/tháng).
+  - Tăng ca: bổ sung check-in/out OT bị thiếu (hạn mức riêng 4 credits/tháng). Tự động fill thời gian mặc định (18:00/22:00) và chuyển OT sang pending.
+- **Nghỉ phép:** Đăng ký full_day / half_day_morning / half_day_afternoon. Ngày quá khứ tự detect absent/half_day. Kiểm tra số ngày phép.
+- **Tăng ca (Overtime):** Check-in OT (sau 17:00), check-out OT (hỗ trợ checkout-only khi quên checkin). Hiển thị thời gian dự kiến bo tròn 18:00-22:00.
+- **Trang chủ:** Card OT hôm nay, lịch sử tuần có hiển thị OT per ngày.
 
 #### Admin Portal (Web)
-- **Real-time Dashboard:** Thống kê tỷ lệ đi làm, đi muộn, vắng mặt.
-- **Quản lý đa cấu hình:** Quản lý Chi nhánh, thiết lập mạng WiFi hợp lệ, cấu hình toạ độ Geofencing.
-- **Quản lý Nhân sự & Phân quyền:** RBAC (Admin/Manager), tạo/sửa/xoá nhân viên, cấp lại mật khẩu.
-- **Traceability:** Xem lịch sử mọi bản ghi điểm danh và dấu hiệu bị nghi ngờ gian lận.
+- **Real-time Dashboard:** KPI cards, Pie/Bar charts, thống kê per chi nhánh.
+- **Quản lý đa cấu hình:** Chi nhánh, WiFi SSID/BSSID, GPS Geofencing.
+- **Quản lý Nhân sự:** RBAC 3 cấp (Admin/Manager/Employee), CRUD nhân viên, reset mật khẩu.
+- **Phê duyệt tổng hợp:** Unified view cho bổ sung công + nghỉ phép + tăng ca.
+  - Filter theo loại (Bổ sung công / Nghỉ phép / Tăng ca) và trạng thái.
+  - Tăng ca detail: giờ thực tế (Actual) vs giờ hệ thống tính (Calculated), tổng giờ OT.
+  - Batch approve, manager notes, audit log đầy đủ.
+- **Báo cáo:** Theo nhân viên/chi nhánh, kỳ daily/weekly/monthly/custom.
 
-### 8.2. Lộ trình phát triển (HRIS Roadmap)
+#### Manager App (Mobile)
+- **Duyệt chấm công/Tăng ca:** 3 tab (Chờ duyệt / Đã duyệt / Từ chối).
+- Card riêng cho từng loại: Bổ sung công, Nghỉ phép, Tăng ca (hiển thị check-in/out, giờ tính, tổng OT).
+- Duyệt/Từ chối với ghi chú, Duyệt tất cả.
+
+#### Backend
+- **Soft Delete:** Tất cả bảng có `deleted_at` (gorm.DeletedAt). Unique indexes exclude soft-deleted rows.
+- **Scheduler:** Auto-reject yêu cầu pending tháng cũ, cộng 1 ngày phép/tháng.
+- **12 migrations versioned** với rollback support.
+
+### 8.2. Lộ trình phát triển tiếp theo (Roadmap)
 
 #### Nhóm Dành cho Nhân viên (Employee)
-- **Log chấm công bù (Manual Log):** Đơn giải trình quên check-in/out hoặc đi muộn vì lý do khách quan (hỏng xe, gặp đối tác).
-- **Chấm công theo ca (Shift Scheduling):** Hỗ trợ linh hoạt định nghĩa các loại ca (ca hành chính, ca gãy, ca đêm, xoay ca).
-- **Quản lý Nghỉ phép (Leave Management):** Gửi và theo dõi tình trạng đơn xin nghỉ (phép năm, thai sản, nghỉ ốm).
-- **Đăng ký OT (Overtime):** Khai báo làm thêm giờ đi kèm theo hệ số lương và lý do.
-- **Đi công tác (Business Trip):** Đăng ký lịch trình và check-in tại vị trí công tác ngoại tuyến.
+- [ ] **Chấm công theo ca (Shift Scheduling):** Hỗ trợ ca gãy, ca đêm, xoay ca.
+- [ ] **Đi công tác (Business Trip):** Đăng ký lịch trình và check-in tại vị trí công tác.
+- [ ] **Quản lý ngày lễ:** Cấu hình ngày lễ theo năm, tự động tính công.
 
 #### Nhóm Dành cho Quản lý (Admin/Manager)
-- **Phê duyệt trực tuyến (Online Approvals):** Cấp quản lý duyệt hoặc từ chối ngay lập tức các đơn giải trình trực tiếp trên giao diện app hoặc Web.
-- **Dashboard Thời gian thực nâng cao:** Bố trí danh sách "live" chi tiết đi muộn, vắng mặt dành riêng cho Manager chi nhánh trên App
-- **Quản lý thiết bị (Device Whitelist):** Gỡ liên kết / Phê duyệt máy mới khi nhân viên đổi điện thoại để tránh việc điểm danh hộ.
-- **Xuất báo cáo tự động (Export Report):** Tự động kết xuất báo cáo tổng hợp ra file Excel chuyên nghiệp vào mỗi cuối tháng.
+- [ ] **Dashboard nâng cao trên App:** Danh sách "live" đi muộn/vắng mặt cho Manager chi nhánh.
+- [ ] **Quản lý thiết bị (Device Whitelist):** Phê duyệt máy mới khi nhân viên đổi điện thoại.
+- [ ] **Xuất báo cáo (Export Report):** Xuất Excel/PDF cho HR/Payroll.
 
-#### Nhóm Nâng cao Chống Gian Lận (Anti-Fraud & AI)
-- **Face Liveness / Recognition:** Yêu cầu chụp ảnh Selfie khi check-in, dùng AI so khớp với khuôn mặt thật để chặn triệt để tình trạng người khác bấm hộ trên máy dự phòng.
-- **Thuật toán rà soát Di chuyển ngầm:** Chạy CronJob phân tích "Điểm chốt Tọa độ & Cảm biến bước chân offline". Nếu một thiết bị liên tục báo về nằm im tại khu vực văn phòng 3 ngày liền mạch (độ chênh lệch vận động = 0), lập tức tống xuất vào Danh sách Đỏ (Máy nghi ngờ gian lận) gửi thông báo cho Manager kiểm tra đột xuất tại chi nhánh.
+#### Nhóm Anti-Fraud & AI
+- [ ] **Face Liveness / Recognition:** Selfie khi check-in, AI so khớp khuôn mặt.
+- [ ] **Phân tích hành vi di chuyển:** CronJob rà soát thiết bị nằm im bất thường.
+
+#### Nhóm Kỹ thuật
+- [ ] **Push Notification:** Nhắc nhở check-in/out qua Firebase.
+- [ ] **WebSocket Real-time:** Dashboard live khi có check-in mới.
+- [ ] **Swagger/OpenAPI:** Auto-generate API documentation.
+- [ ] **Unit/Integration Tests:** Mock repository layer.
 
 #### Nhóm Khác (Extensions)
-- **Bảo mật Phiếu Lương (Secure Payslip):** Xem chi tiết bảng lương ngay trên App yêu cầu trích xuất bằng mã PIN / FaceID/TouchID an toàn.
-- **Email Tự động cảnh báo (Alert Automation):** Tự định tuyến gửi email danh sách nhân viên vi phạm / nghi ngờ sử dụng Mock GPS cho trưởng chi nhánh mỗi sáng/tuần.
+- [ ] **Bảo mật Phiếu Lương (Secure Payslip):** Xem bảng lương qua mã PIN / FaceID.
+- [ ] **Email cảnh báo tự động:** Gửi danh sách vi phạm cho trưởng chi nhánh mỗi sáng.
 
 ---
 
@@ -876,4 +895,4 @@ Trước khi deploy production, kiểm tra các mục sau:
 
 ---
 
-*Cập nhật lần cuối: 2026-04-05*
+*Cập nhật lần cuối: 2026-04-08*

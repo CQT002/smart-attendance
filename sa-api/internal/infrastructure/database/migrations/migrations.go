@@ -346,5 +346,63 @@ func GetMigrations() []*gormigrate.Migration {
 				return nil
 			},
 		},
+
+		// ── 013: Thêm fields vào shifts + tạo bảng schedulers ──
+		// Shift: morning_end, afternoon_start, ot_min_checkin_hour, ot_start_hour, ot_end_hour
+		// Schedulers: bảng quản lý tác vụ định kỳ từ DB
+		{
+			ID: "20250408000001",
+			Migrate: func(tx *gorm.DB) error {
+				// Thêm fields mới vào shifts
+				shiftCols := []string{
+					"ALTER TABLE shifts ADD COLUMN IF NOT EXISTS morning_end VARCHAR(5) NOT NULL DEFAULT '12:00'",
+					"ALTER TABLE shifts ADD COLUMN IF NOT EXISTS afternoon_start VARCHAR(5) NOT NULL DEFAULT '13:00'",
+					"ALTER TABLE shifts ADD COLUMN IF NOT EXISTS ot_min_checkin_hour INTEGER NOT NULL DEFAULT 17",
+					"ALTER TABLE shifts ADD COLUMN IF NOT EXISTS ot_start_hour INTEGER NOT NULL DEFAULT 18",
+					"ALTER TABLE shifts ADD COLUMN IF NOT EXISTS ot_end_hour INTEGER NOT NULL DEFAULT 22",
+				}
+				for _, sql := range shiftCols {
+					if err := tx.Exec(sql).Error; err != nil {
+						return err
+					}
+				}
+
+				// Tạo bảng schedulers
+				type Scheduler struct {
+					entity.Scheduler
+				}
+				if err := tx.AutoMigrate(&Scheduler{}); err != nil {
+					return err
+				}
+
+				// Seed schedulers mặc định
+				seeds := []string{
+					`INSERT INTO schedulers (name, description, cron_expr, is_active, timeout_sec, created_at, updated_at)
+					 VALUES ('leave_accrual', 'Cộng 1 ngày phép cho tất cả user active vào đầu tháng', '30 0 1 * *', true, 30, NOW(), NOW())
+					 ON CONFLICT DO NOTHING`,
+					`INSERT INTO schedulers (name, description, cron_expr, is_active, timeout_sec, created_at, updated_at)
+					 VALUES ('correction_auto_reject', 'Tự động từ chối yêu cầu chấm công bù PENDING của tháng trước', '5 0 1 * *', true, 30, NOW(), NOW())
+					 ON CONFLICT DO NOTHING`,
+					`INSERT INTO schedulers (name, description, cron_expr, is_active, timeout_sec, created_at, updated_at)
+					 VALUES ('leave_auto_reject', 'Tự động từ chối yêu cầu nghỉ phép PENDING của tháng trước', '5 0 1 * *', true, 30, NOW(), NOW())
+					 ON CONFLICT DO NOTHING`,
+				}
+				for _, sql := range seeds {
+					if err := tx.Exec(sql).Error; err != nil {
+						return err
+					}
+				}
+
+				return nil
+			},
+			Rollback: func(tx *gorm.DB) error {
+				tx.Exec("DROP TABLE IF EXISTS schedulers")
+				cols := []string{"morning_end", "afternoon_start", "ot_min_checkin_hour", "ot_start_hour", "ot_end_hour"}
+				for _, col := range cols {
+					tx.Exec("ALTER TABLE shifts DROP COLUMN IF EXISTS " + col)
+				}
+				return nil
+			},
+		},
 	}
 }

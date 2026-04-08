@@ -23,6 +23,15 @@ type Shift struct {
 	EarlyBefore int     `gorm:"default:15"        json:"early_before"` // Phút trước giờ ra mới tính là về sớm
 	WorkHours   float64 `gorm:"type:decimal(5,2)" json:"work_hours"`   // Số giờ làm chuẩn của ca
 
+	// Khung giờ nghỉ trưa — dùng để phân chia buổi sáng/chiều
+	MorningEnd     string `gorm:"size:5;default:'12:00'" json:"morning_end"`     // HH:MM — kết thúc buổi sáng
+	AfternoonStart string `gorm:"size:5;default:'13:00'" json:"afternoon_start"` // HH:MM — bắt đầu buổi chiều
+
+	// Cấu hình tăng ca (OT) theo ca — cho phép khác nhau giữa các ca/chi nhánh
+	OTMinCheckInHour int `gorm:"default:17" json:"ot_min_checkin_hour"` // Giờ sớm nhất check-in OT (VD: 17 = 17:00)
+	OTStartHour      int `gorm:"default:18" json:"ot_start_hour"`      // Giờ bắt đầu tính OT (VD: 18 = 18:00)
+	OTEndHour        int `gorm:"default:22" json:"ot_end_hour"`        // Giờ kết thúc tính OT (VD: 22 = 22:00)
+
 	// idx_shift_branch_default_active priority:2
 	IsDefault bool `gorm:"default:false;index:idx_shift_branch_default_active,priority:2" json:"is_default"`
 

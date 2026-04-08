@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/hdbank/smart-attendance/config"
 	"github.com/hdbank/smart-attendance/internal/domain/entity"
 	"github.com/hdbank/smart-attendance/internal/domain/repository"
 	"github.com/hdbank/smart-attendance/internal/domain/usecase"
@@ -13,19 +14,13 @@ import (
 	"gorm.io/gorm"
 )
 
-// OT time boundaries (HCM timezone)
-const (
-	otCheckInMinHour  = 17 // Chỉ check-in sau 17:00
-	otStartHour       = 18 // Giờ bắt đầu tính OT
-	otEndHour         = 22 // Giờ kết thúc tính OT
-	otMaxHours        = 4  // Tối đa 4 giờ/ngày
-)
-
 type overtimeUsecase struct {
 	overtimeRepo   repository.OvertimeRepository
 	userRepo       repository.UserRepository
 	attendanceRepo repository.AttendanceRepository
+	shiftRepo      repository.ShiftRepository
 	db             *gorm.DB
+	maxHoursPerDay float64
 }
 
 // NewOvertimeUsecase tạo instance OvertimeUsecase
@@ -33,20 +28,54 @@ func NewOvertimeUsecase(
 	overtimeRepo repository.OvertimeRepository,
 	userRepo repository.UserRepository,
 	attendanceRepo repository.AttendanceRepository,
+	shiftRepo repository.ShiftRepository,
 	db *gorm.DB,
+	otCfg config.OvertimeConfig,
 ) usecase.OvertimeUsecase {
+	maxHours := otCfg.MaxHoursPerDay
+	if maxHours <= 0 {
+		maxHours = 4
+	}
 	return &overtimeUsecase{
 		overtimeRepo:   overtimeRepo,
 		userRepo:       userRepo,
 		attendanceRepo: attendanceRepo,
+		shiftRepo:      shiftRepo,
 		db:             db,
+		maxHoursPerDay: maxHours,
 	}
+}
+
+// otConfig chứa thông số OT lấy từ shift, có fallback mặc định
+type otConfig struct {
+	minCheckInHour int
+	startHour      int
+	endHour        int
+}
+
+// getOTConfig lấy cấu hình OT từ shift của branch, fallback về default nếu không có
+func (u *overtimeUsecase) getOTConfig(ctx context.Context, branchID uint) otConfig {
+	cfg := otConfig{minCheckInHour: 17, startHour: 18, endHour: 22}
+	shift, err := u.shiftRepo.FindDefault(ctx, branchID)
+	if err != nil || shift == nil {
+		return cfg
+	}
+	if shift.OTMinCheckInHour > 0 {
+		cfg.minCheckInHour = shift.OTMinCheckInHour
+	}
+	if shift.OTStartHour > 0 {
+		cfg.startHour = shift.OTStartHour
+	}
+	if shift.OTEndHour > 0 {
+		cfg.endHour = shift.OTEndHour
+	}
+	return cfg
 }
 
 // CheckIn check-in tăng ca
 //
 // Flow:
-//  1. Validate thời gian >= 17:00
+//  1. Validate thời gian >= OTMinCheckInHour (từ shift)
 //  2. Kiểm tra chưa có OT request cho ngày này
 //  3. Tạo OvertimeRequest với actual_checkin
 //  4. Trả về thông tin dự kiến bo tròn
@@ -55,12 +84,6 @@ func (u *overtimeUsecase) CheckIn(ctx context.Context, req usecase.OvertimeCheck
 
 	now := utils.Now()
 
-	// 1. Validate thời gian >= 17:00
-	if now.Hour() < otCheckInMinHour {
-		logger.Warn("overtime check-in rejected - too early", "hour", now.Hour())
-		return nil, apperrors.ErrOvertimeCheckInTooEarly
-	}
-
 	// Lấy thông tin user để có branch_id
 	user, err := u.userRepo.FindByID(ctx, req.UserID)
 	if err != nil {
@@ -68,6 +91,15 @@ func (u *overtimeUsecase) CheckIn(ctx context.Context, req usecase.OvertimeCheck
 	}
 	if user.BranchID == nil {
 		return nil, apperrors.ErrForbidden
+	}
+
+	// Lấy OT config từ shift
+	ot := u.getOTConfig(ctx, *user.BranchID)
+
+	// 1. Validate thời gian >= OTMinCheckInHour
+	if now.Hour() < ot.minCheckInHour {
+		logger.Warn("overtime check-in rejected - too early", "hour", now.Hour(), "min_hour", ot.minCheckInHour)
+		return nil, apperrors.ErrOvertimeCheckInTooEarly
 	}
 
 	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, utils.HCM)
@@ -85,7 +117,7 @@ func (u *overtimeUsecase) CheckIn(ctx context.Context, req usecase.OvertimeCheck
 	}
 
 	// 3. Tạo OvertimeRequest
-	ot := &entity.OvertimeRequest{
+	otReq := &entity.OvertimeRequest{
 		UserID:        req.UserID,
 		BranchID:      *user.BranchID,
 		Date:          today,
@@ -93,21 +125,21 @@ func (u *overtimeUsecase) CheckIn(ctx context.Context, req usecase.OvertimeCheck
 		Status:        entity.OvertimeStatusInit,
 	}
 
-	if err := u.overtimeRepo.Create(ctx, ot); err != nil {
+	if err := u.overtimeRepo.Create(ctx, otReq); err != nil {
 		return nil, err
 	}
 
 	logger.Info("overtime check-in successful",
-		"overtime_id", ot.ID,
+		"overtime_id", otReq.ID,
 		"actual_checkin", now.Format("15:04:05"),
 	)
 
 	// 4. Tính thời gian dự kiến
-	estimatedStart := clampStart(now, today)
-	estimatedEnd := time.Date(today.Year(), today.Month(), today.Day(), otEndHour, 0, 0, 0, utils.HCM)
+	estimatedStart := clampStart(now, today, ot.startHour)
+	estimatedEnd := time.Date(today.Year(), today.Month(), today.Day(), ot.endHour, 0, 0, 0, utils.HCM)
 
 	return &usecase.OvertimeCheckInResponse{
-		OvertimeRequest: ot,
+		OvertimeRequest: otReq,
 		EstimatedStart:  &estimatedStart,
 		EstimatedEnd:    &estimatedEnd,
 		Note:            "Lưu ý: Giờ tăng ca chỉ bắt đầu tính từ 18:00 đến 22:00 theo quy định",
@@ -127,40 +159,65 @@ func (u *overtimeUsecase) CheckOut(ctx context.Context, req usecase.OvertimeChec
 	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, utils.HCM)
 
 	// Tìm OT request active
-	var ot *entity.OvertimeRequest
+	var otReq *entity.OvertimeRequest
 	var err error
 
 	if req.OvertimeID > 0 {
-		ot, err = u.overtimeRepo.FindByID(ctx, req.OvertimeID)
+		otReq, err = u.overtimeRepo.FindByID(ctx, req.OvertimeID)
 		if err != nil {
 			return nil, err
 		}
-		if ot.UserID != req.UserID {
+		if otReq.UserID != req.UserID {
 			return nil, apperrors.ErrForbidden
 		}
 	} else {
 		// Tìm OT init (đã check-in) cho hôm nay
-		ot, err = u.overtimeRepo.FindActiveByUserAndDate(ctx, req.UserID, today)
+		otReq, err = u.overtimeRepo.FindActiveByUserAndDate(ctx, req.UserID, today)
 		if err != nil {
 			return nil, err
 		}
 	}
 
-	if ot != nil && ot.IsCheckedOut() {
+	if otReq != nil && otReq.IsCheckedOut() {
 		return nil, apperrors.ErrOvertimeAlreadyCheckedOut
 	}
 
-	if ot != nil && ot.IsCheckedIn() {
-		// Kịch bản 1: Đã check-in → cập nhật checkout, chuyển pending
-		ot.ActualCheckout = &now
-		ot.Status = entity.OvertimeStatusPending
+	// Lấy branchID để query OT config
+	var branchID uint
+	if otReq != nil {
+		branchID = otReq.BranchID
+	} else {
+		user, err := u.userRepo.FindByID(ctx, req.UserID)
+		if err != nil {
+			return nil, err
+		}
+		if user.BranchID == nil {
+			return nil, apperrors.ErrForbidden
+		}
+		branchID = *user.BranchID
+	}
 
-		if err := u.overtimeRepo.Update(ctx, ot); err != nil {
+	ot := u.getOTConfig(ctx, branchID)
+
+	// Validate thời gian >= OTStartHour (18:00)
+	if now.Hour() < ot.startHour {
+		logger.Warn("overtime check-out rejected - too early", "hour", now.Hour(), "start_hour", ot.startHour)
+		return nil, apperrors.ErrOvertimeCheckOutTooEarly
+	}
+
+	if otReq != nil && otReq.IsCheckedIn() {
+		// Kịch bản 1: Đã check-in → cập nhật checkout, chuyển pending
+		otReq.ActualCheckout = &now
+		otReq.Status = entity.OvertimeStatusPending
+
+		if err := u.overtimeRepo.Update(ctx, otReq); err != nil {
 			return nil, err
 		}
 	} else {
+		if otReq != nil {
+			return nil, apperrors.ErrOvertimeAlreadyExists
+		}
 		// Kịch bản 2: Chưa check-in → tạo mới chỉ có checkout, status init
-		// Kiểm tra chưa có OT record cho ngày này
 		existing, err := u.overtimeRepo.FindByUserAndDate(ctx, req.UserID, today)
 		if err != nil {
 			return nil, err
@@ -169,66 +226,58 @@ func (u *overtimeUsecase) CheckOut(ctx context.Context, req usecase.OvertimeChec
 			return nil, apperrors.ErrOvertimeAlreadyExists
 		}
 
-		user, err := u.userRepo.FindByID(ctx, req.UserID)
-		if err != nil {
-			return nil, err
-		}
-		if user.BranchID == nil {
-			return nil, apperrors.ErrForbidden
-		}
-
-		ot = &entity.OvertimeRequest{
+		otReq = &entity.OvertimeRequest{
 			UserID:         req.UserID,
-			BranchID:       *user.BranchID,
+			BranchID:       branchID,
 			Date:           today,
 			ActualCheckout: &now,
 			Status:         entity.OvertimeStatusInit, // init — cần bù check-in
 		}
-		if err := u.overtimeRepo.Create(ctx, ot); err != nil {
+		if err := u.overtimeRepo.Create(ctx, otReq); err != nil {
 			return nil, err
 		}
 	}
 
 	logger.Info("overtime check-out successful",
-		"overtime_id", ot.ID,
+		"overtime_id", otReq.ID,
 		"actual_checkout", now.Format("15:04:05"),
-		"has_checkin", ot.IsCheckedIn(),
+		"has_checkin", otReq.IsCheckedIn(),
 	)
 
 	// Tính thời gian dự kiến
 	var estimatedStart, estimatedEnd time.Time
 	var estimatedHours float64
 
-	if ot.IsCheckedIn() && ot.IsCheckedOut() {
-		estimatedStart = clampStart(*ot.ActualCheckin, ot.Date)
-		estimatedEnd = clampEnd(now, ot.Date)
+	if otReq.IsCheckedIn() && otReq.IsCheckedOut() {
+		estimatedStart = clampStart(*otReq.ActualCheckin, otReq.Date, ot.startHour)
+		estimatedEnd = clampEnd(now, otReq.Date, ot.endHour)
 		estimatedHours = estimatedEnd.Sub(estimatedStart).Hours()
 		if estimatedHours < 0 {
 			estimatedHours = 0
 		}
-		if estimatedHours > otMaxHours {
-			estimatedHours = otMaxHours
+		if estimatedHours > u.maxHoursPerDay {
+			estimatedHours = u.maxHoursPerDay
 		}
 	} else {
-		// Chỉ có checkout, chưa có checkin → dự kiến từ 18:00
-		estimatedStart = time.Date(today.Year(), today.Month(), today.Day(), otStartHour, 0, 0, 0, utils.HCM)
-		estimatedEnd = clampEnd(now, ot.Date)
+		// Chỉ có checkout, chưa có checkin → dự kiến từ OTStartHour
+		estimatedStart = time.Date(today.Year(), today.Month(), today.Day(), ot.startHour, 0, 0, 0, utils.HCM)
+		estimatedEnd = clampEnd(now, otReq.Date, ot.endHour)
 		estimatedHours = estimatedEnd.Sub(estimatedStart).Hours()
 		if estimatedHours < 0 {
 			estimatedHours = 0
 		}
-		if estimatedHours > otMaxHours {
-			estimatedHours = otMaxHours
+		if estimatedHours > u.maxHoursPerDay {
+			estimatedHours = u.maxHoursPerDay
 		}
 	}
 
 	note := "Lưu ý: Giờ tăng ca chỉ bắt đầu tính từ 18:00 đến 22:00 theo quy định"
-	if !ot.IsCheckedIn() {
+	if !otReq.IsCheckedIn() {
 		note = "Bạn chưa check-in tăng ca. Vui lòng tạo yêu cầu chấm công bù để bổ sung check-in."
 	}
 
 	return &usecase.OvertimeCheckOutResponse{
-		OvertimeRequest: ot,
+		OvertimeRequest: otReq,
 		EstimatedStart:  &estimatedStart,
 		EstimatedEnd:    &estimatedEnd,
 		EstimatedHours:  float64(int(estimatedHours*100)) / 100,
@@ -239,8 +288,8 @@ func (u *overtimeUsecase) CheckOut(ctx context.Context, req usecase.OvertimeChec
 // Process duyệt hoặc từ chối yêu cầu tăng ca
 //
 // Khi approved — chạy trong transaction:
-//  1. Tính calculated_start = Max(actual_checkin, 18:00)
-//  2. Tính calculated_end = Min(actual_checkout, 22:00)
+//  1. Tính calculated_start = Max(actual_checkin, OTStartHour)
+//  2. Tính calculated_end = Min(actual_checkout, OTEndHour)
 //  3. Tính total_hours = calculated_end - calculated_start
 //  4. Ghi audit log
 func (u *overtimeUsecase) Process(ctx context.Context, req usecase.ProcessOvertimeRequest) (*entity.OvertimeRequest, error) {
@@ -253,63 +302,66 @@ func (u *overtimeUsecase) Process(ctx context.Context, req usecase.ProcessOverti
 		})
 	}
 
-	ot, err := u.overtimeRepo.FindByID(ctx, req.OvertimeID)
+	otReq, err := u.overtimeRepo.FindByID(ctx, req.OvertimeID)
 	if err != nil {
 		return nil, err
 	}
 
-	if !ot.IsPending() {
+	if !otReq.IsPending() {
 		return nil, apperrors.ErrOvertimeNotPending
 	}
 
 	// Manager không được tự duyệt cho chính mình
-	if ot.UserID == req.ProcessedByID {
+	if otReq.UserID == req.ProcessedByID {
 		logger.Warn("self-approval attempt blocked")
 		return nil, apperrors.ErrOvertimeSelfApprove
 	}
 
 	// Check-out phải hoàn tất trước khi duyệt
-	if !ot.IsCheckedOut() {
+	if !otReq.IsCheckedOut() {
 		return nil, apperrors.ErrOvertimeNotCompleted
 	}
 
 	now := utils.Now()
 
 	if req.Status == entity.OvertimeStatusApproved {
+		// Lấy OT config từ shift của branch
+		ot := u.getOTConfig(ctx, otReq.BranchID)
+
 		// Transaction: tính toán và cập nhật
 		err = u.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 			// Tính bo tròn
-			calcStart := clampStart(*ot.ActualCheckin, ot.Date)
-			calcEnd := clampEnd(*ot.ActualCheckout, ot.Date)
+			calcStart := clampStart(*otReq.ActualCheckin, otReq.Date, ot.startHour)
+			calcEnd := clampEnd(*otReq.ActualCheckout, otReq.Date, ot.endHour)
 			totalHours := calcEnd.Sub(calcStart).Hours()
 			if totalHours < 0 {
 				totalHours = 0
 			}
-			if totalHours > otMaxHours {
-				totalHours = otMaxHours
+			if totalHours > u.maxHoursPerDay {
+				totalHours = u.maxHoursPerDay
 			}
 			totalHours = float64(int(totalHours*100)) / 100
 
-			ot.CalculatedStart = &calcStart
-			ot.CalculatedEnd = &calcEnd
-			ot.TotalHours = totalHours
-			ot.Status = entity.OvertimeStatusApproved
-			ot.ManagerID = &req.ProcessedByID
-			ot.ProcessedAt = &now
-			ot.ManagerNote = req.ManagerNote
+			otReq.CalculatedStart = &calcStart
+			otReq.CalculatedEnd = &calcEnd
+			otReq.TotalHours = totalHours
+			otReq.Status = entity.OvertimeStatusApproved
+			otReq.ManagerID = &req.ProcessedByID
+			otReq.ProcessedAt = &now
+			otReq.ManagerNote = req.ManagerNote
 
-			if err := tx.Save(ot).Error; err != nil {
+			if err := tx.Save(otReq).Error; err != nil {
 				return err
 			}
 
 			// Link OT vào attendance_log nếu có
-			today := ot.Date
+			today := otReq.Date
 			var attendLog entity.AttendanceLog
-			if findErr := tx.Where("user_id = ? AND date = ?", ot.UserID, today).
+			if findErr := tx.Where("user_id = ? AND date = ?", otReq.UserID, today).
 				First(&attendLog).Error; findErr == nil {
 				tx.Model(&entity.AttendanceLog{}).
 					Where("id = ?", attendLog.ID).
-					Update("overtime_request_id", ot.ID)
+					Update("overtime_request_id", otReq.ID)
 			}
 
 			return nil
@@ -320,25 +372,25 @@ func (u *overtimeUsecase) Process(ctx context.Context, req usecase.ProcessOverti
 		}
 
 		logger.Info("overtime approved",
-			"total_hours", ot.TotalHours,
-			"calculated_start", ot.CalculatedStart,
-			"calculated_end", ot.CalculatedEnd,
+			"total_hours", otReq.TotalHours,
+			"calculated_start", otReq.CalculatedStart,
+			"calculated_end", otReq.CalculatedEnd,
 		)
 	} else {
 		// Rejected
-		ot.Status = entity.OvertimeStatusRejected
-		ot.ManagerID = &req.ProcessedByID
-		ot.ProcessedAt = &now
-		ot.ManagerNote = req.ManagerNote
+		otReq.Status = entity.OvertimeStatusRejected
+		otReq.ManagerID = &req.ProcessedByID
+		otReq.ProcessedAt = &now
+		otReq.ManagerNote = req.ManagerNote
 
-		if err := u.overtimeRepo.Update(ctx, ot); err != nil {
+		if err := u.overtimeRepo.Update(ctx, otReq); err != nil {
 			return nil, err
 		}
 
-		logger.Info("overtime rejected", "overtime_id", ot.ID)
+		logger.Info("overtime rejected", "overtime_id", otReq.ID)
 	}
 
-	return u.overtimeRepo.FindByID(ctx, ot.ID)
+	return u.overtimeRepo.FindByID(ctx, otReq.ID)
 }
 
 func (u *overtimeUsecase) GetByID(ctx context.Context, id uint) (*entity.OvertimeRequest, error) {
@@ -362,14 +414,14 @@ func (u *overtimeUsecase) GetMyList(ctx context.Context, userID uint, status ent
 func (u *overtimeUsecase) GetMyToday(ctx context.Context, userID uint) (*entity.OvertimeRequest, error) {
 	now := utils.Now()
 	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, utils.HCM)
-	ot, err := u.overtimeRepo.FindByUserAndDate(ctx, userID, today)
+	otReq, err := u.overtimeRepo.FindByUserAndDate(ctx, userID, today)
 	if err != nil {
 		return nil, err
 	}
-	if ot == nil {
+	if otReq == nil {
 		return nil, apperrors.ErrNotFound
 	}
-	return ot, nil
+	return otReq, nil
 }
 
 // BatchApprove duyệt tất cả yêu cầu PENDING
@@ -428,18 +480,18 @@ func (u *overtimeUsecase) AutoRejectExpired(ctx context.Context) (int64, error) 
 	return count, nil
 }
 
-// clampStart trả về Max(actualCheckin, 18:00 ngày date)
-func clampStart(actualCheckin time.Time, date time.Time) time.Time {
-	otStart := time.Date(date.Year(), date.Month(), date.Day(), otStartHour, 0, 0, 0, utils.HCM)
+// clampStart trả về Max(actualCheckin, startHour:00 ngày date)
+func clampStart(actualCheckin time.Time, date time.Time, startHour int) time.Time {
+	otStart := time.Date(date.Year(), date.Month(), date.Day(), startHour, 0, 0, 0, utils.HCM)
 	if actualCheckin.Before(otStart) {
 		return otStart
 	}
 	return actualCheckin
 }
 
-// clampEnd trả về Min(actualCheckout, 22:00 ngày date)
-func clampEnd(actualCheckout time.Time, date time.Time) time.Time {
-	otEnd := time.Date(date.Year(), date.Month(), date.Day(), otEndHour, 0, 0, 0, utils.HCM)
+// clampEnd trả về Min(actualCheckout, endHour:00 ngày date)
+func clampEnd(actualCheckout time.Time, date time.Time, endHour int) time.Time {
+	otEnd := time.Date(date.Year(), date.Month(), date.Day(), endHour, 0, 0, 0, utils.HCM)
 	if actualCheckout.After(otEnd) {
 		return otEnd
 	}

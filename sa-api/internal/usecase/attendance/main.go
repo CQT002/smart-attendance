@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/hdbank/smart-attendance/config"
 	"github.com/hdbank/smart-attendance/internal/domain/entity"
 	"github.com/hdbank/smart-attendance/internal/domain/repository"
 	"github.com/hdbank/smart-attendance/internal/domain/usecase"
@@ -16,17 +17,18 @@ import (
 )
 
 const (
-	maxSuspiciousCount = 3               // Số lần vi phạm tối đa trong 7 ngày
-	todayCacheTTL      = 5 * time.Minute // TTL cache trạng thái hôm nay
+	todayCacheTTL = 5 * time.Minute // TTL cache trạng thái hôm nay
 )
 
 type attendanceUsecase struct {
-	attendanceRepo repository.AttendanceRepository
-	userRepo       repository.UserRepository // để lấy branchID chính thống từ profile
-	wifiConfigRepo repository.WiFiConfigRepository
-	gpsConfigRepo  repository.GPSConfigRepository
-	shiftRepo      repository.ShiftRepository
-	cache          cache.Cache
+	attendanceRepo     repository.AttendanceRepository
+	userRepo           repository.UserRepository // để lấy branchID chính thống từ profile
+	wifiConfigRepo     repository.WiFiConfigRepository
+	gpsConfigRepo      repository.GPSConfigRepository
+	shiftRepo          repository.ShiftRepository
+	cache              cache.Cache
+	maxSuspiciousCount int
+	suspiciousWindowDays int
 }
 
 // NewAttendanceUsecase tạo instance AttendanceUsecase
@@ -37,14 +39,25 @@ func NewAttendanceUsecase(
 	gpsConfigRepo repository.GPSConfigRepository,
 	shiftRepo repository.ShiftRepository,
 	cache cache.Cache,
+	attendanceCfg config.AttendanceConfig,
 ) usecase.AttendanceUsecase {
+	maxSuspicious := attendanceCfg.MaxSuspiciousCount
+	if maxSuspicious <= 0 {
+		maxSuspicious = 3
+	}
+	windowDays := attendanceCfg.SuspiciousWindowDays
+	if windowDays <= 0 {
+		windowDays = 7
+	}
 	return &attendanceUsecase{
-		attendanceRepo: attendanceRepo,
-		userRepo:       userRepo,
-		wifiConfigRepo: wifiConfigRepo,
-		gpsConfigRepo:  gpsConfigRepo,
-		shiftRepo:      shiftRepo,
-		cache:          cache,
+		attendanceRepo:       attendanceRepo,
+		userRepo:             userRepo,
+		wifiConfigRepo:       wifiConfigRepo,
+		gpsConfigRepo:        gpsConfigRepo,
+		shiftRepo:            shiftRepo,
+		cache:                cache,
+		maxSuspiciousCount:   maxSuspicious,
+		suspiciousWindowDays: windowDays,
 	}
 }
 
@@ -111,11 +124,13 @@ func (u *attendanceUsecase) CheckIn(ctx context.Context, req usecase.CheckInRequ
 	}
 	if shift == nil {
 		shift = &entity.Shift{
-			StartTime:   "08:00",
-			EndTime:     "17:00",
-			LateAfter:   15,
-			EarlyBefore: 15,
-			WorkHours:   8,
+			StartTime:      "08:00",
+			EndTime:        "17:00",
+			LateAfter:      15,
+			EarlyBefore:    15,
+			WorkHours:      8,
+			MorningEnd:     "12:00",
+			AfternoonStart: "13:00",
 		}
 	}
 
@@ -295,7 +310,7 @@ func (u *attendanceUsecase) CheckOut(ctx context.Context, req usecase.CheckOutRe
 				}
 			} else {
 				// Fallback khi không có shift — dùng default 8h shift
-				defaultShift := &entity.Shift{StartTime: "08:00", EndTime: "17:00", WorkHours: 8}
+				defaultShift := &entity.Shift{StartTime: "08:00", EndTime: "17:00", WorkHours: 8, MorningEnd: "12:00", AfternoonStart: "13:00"}
 				wh, _ := calculateBusinessWorkHours(*attendLog.CheckInTime, now, defaultShift)
 				attendLog.WorkHours = wh
 			}
@@ -372,14 +387,14 @@ func (u *attendanceUsecase) antiFraudCheck(ctx context.Context, userID uint, isF
 		return err
 	}
 
-	// Kiểm tra lịch sử vi phạm 7 ngày gần đây
-	sevenDaysAgo := utils.Now().AddDate(0, 0, -7)
-	count, err := u.attendanceRepo.CountSuspicious(ctx, userID, sevenDaysAgo)
+	// Kiểm tra lịch sử vi phạm trong N ngày gần đây
+	windowAgo := utils.Now().AddDate(0, 0, -u.suspiciousWindowDays)
+	count, err := u.attendanceRepo.CountSuspicious(ctx, userID, windowAgo)
 	if err != nil {
 		slog.Error("failed to check suspicious count", "user_id", userID, "error", err)
 		return nil // fail-open: không block user nếu query lỗi
 	}
-	if count >= maxSuspiciousCount {
+	if count >= int64(u.maxSuspiciousCount) {
 		slog.Warn("user blocked - repeated suspicious activity",
 			"user_id", userID,
 			"suspicious_count", count,
@@ -450,11 +465,18 @@ func (u *attendanceUsecase) validateLocation(
 	return nil, apperrors.ErrLocationNotAllowed
 }
 
-// Mốc giờ nghỉ trưa cố định — dùng để phân biệt nửa ngày sáng/chiều
-const (
-	lunchBreakStart = 12 // 12:00
-	lunchBreakEnd   = 13 // 13:00
-)
+// getLunchBreak trả về giờ nghỉ trưa từ shift, fallback 12:00-13:00
+func getLunchBreak(shift *entity.Shift) (int, int, int, int) {
+	morningEndH, morningEndM := 12, 0
+	afternoonStartH, afternoonStartM := 13, 0
+	if shift.MorningEnd != "" {
+		morningEndH, morningEndM = parseTime(shift.MorningEnd)
+	}
+	if shift.AfternoonStart != "" {
+		afternoonStartH, afternoonStartM = parseTime(shift.AfternoonStart)
+	}
+	return morningEndH, morningEndM, afternoonStartH, afternoonStartM
+}
 
 // calculateCheckInStatus tính trạng thái dựa vào giờ vào so với ca làm việc
 //
@@ -473,13 +495,15 @@ func (u *attendanceUsecase) calculateCheckInStatus(checkInTime time.Time, shift 
 		startHour, startMin, 0, 0, utils.HCM,
 	)
 
-	// Check-in trong giờ nghỉ trưa (12:00-13:00) → nửa ngày buổi chiều
-	if hour >= lunchBreakStart && hour < lunchBreakEnd {
+	morningEndH, _, afternoonStartH, _ := getLunchBreak(shift)
+
+	// Check-in trong giờ nghỉ trưa → nửa ngày buổi chiều
+	if hour >= morningEndH && hour < afternoonStartH {
 		return entity.StatusHalfDay
 	}
 
-	// Check-in sau 13:00 → trễ (không phải nửa ngày, vì buổi chiều bắt đầu từ 13:00)
-	if hour >= lunchBreakEnd {
+	// Check-in sau giờ bắt đầu buổi chiều → trễ
+	if hour >= afternoonStartH {
 		return entity.StatusLate
 	}
 
@@ -506,8 +530,10 @@ func (u *attendanceUsecase) calculateCheckOutStatus(current entity.AttendanceSta
 		endHour, endMin, 0, 0, utils.HCM,
 	)
 
-	// Check-out trong giờ nghỉ trưa (12:00-13:00) khi check-in buổi sáng → nửa ngày
-	if hour >= lunchBreakStart && hour < lunchBreakEnd && current != entity.StatusLate {
+	morningEndH, _, afternoonStartH, _ := getLunchBreak(shift)
+
+	// Check-out trong giờ nghỉ trưa khi check-in buổi sáng → nửa ngày
+	if hour >= morningEndH && hour < afternoonStartH && current != entity.StatusLate {
 		return entity.StatusHalfDay
 	}
 
@@ -559,8 +585,9 @@ func calculateBusinessWorkHours(checkIn, checkOut time.Time, shift *entity.Shift
 	}
 
 	y, m, d := checkIn.Year(), checkIn.Month(), checkIn.Day()
-	lunchStart := time.Date(y, m, d, lunchBreakStart, 0, 0, 0, utils.HCM) // 12:00
-	lunchEnd := time.Date(y, m, d, lunchBreakEnd, 0, 0, 0, utils.HCM)     // 13:00
+	morningEndH, morningEndM, afternoonStartH, afternoonStartM := getLunchBreak(shift)
+	lunchStart := time.Date(y, m, d, morningEndH, morningEndM, 0, 0, utils.HCM)
+	lunchEnd := time.Date(y, m, d, afternoonStartH, afternoonStartM, 0, 0, utils.HCM)
 
 	startH, startM := parseTime(shift.StartTime)
 	endH, endM := parseTime(shift.EndTime)
