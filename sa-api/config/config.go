@@ -51,7 +51,8 @@ type JWTConfig struct {
 }
 
 type CorrectionConfig struct {
-	MaxPerMonth int `mapstructure:"max_per_month"` // Hạn mức bù công tối đa mỗi tháng (tính theo credit)
+	MaxPerMonth         int `mapstructure:"max_per_month"`          // Hạn mức bù công ca chính thức tối đa mỗi tháng (tính theo credit)
+	OvertimeMaxPerMonth int `mapstructure:"overtime_max_per_month"` // Hạn mức bù công tăng ca tối đa mỗi tháng
 }
 
 // Load đọc cấu hình từ config.yaml, sau đó override bằng biến môi trường nếu có

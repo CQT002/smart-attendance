@@ -8,7 +8,7 @@ import '../blocs/correction/correction_event.dart';
 import '../blocs/correction/correction_state.dart';
 import '../widgets/app_toast.dart';
 
-/// Màn hình đăng ký bù công — employee chọn từ lịch sử ngày bị trễ/về sớm
+/// Màn hình đăng ký bổ sung công — employee chọn từ lịch sử ngày bị trễ/về sớm
 class CorrectionRequestScreen extends StatefulWidget {
   final AttendanceModel attendance;
 
@@ -35,14 +35,14 @@ class _CorrectionRequestScreenState extends State<CorrectionRequestScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Đăng ký bù công'),
+        title: const Text('Đăng ký bổ sung công'),
         centerTitle: true,
       ),
       body: BlocListener<CorrectionBloc, CorrectionState>(
         listener: (context, state) {
           if (state is CorrectionCreateSuccess) {
             AppToast.show(context,
-                message: 'Đã gửi yêu cầu bù công thành công!',
+                message: 'Đã gửi yêu cầu bổ sung công thành công!',
                 type: ToastType.success);
             Navigator.of(context).pop(true);
           } else if (state is CorrectionFailure) {
@@ -96,7 +96,7 @@ class _CorrectionRequestScreenState extends State<CorrectionRequestScreen> {
                 const SizedBox(height: 20),
 
                 // Lý do
-                Text('Lý do xin bù công *',
+                Text('Lý do xin bổ sung công *',
                     style: theme.textTheme.titleSmall
                         ?.copyWith(fontWeight: FontWeight.w700)),
                 const SizedBox(height: 8),
@@ -139,7 +139,7 @@ class _CorrectionRequestScreenState extends State<CorrectionRequestScreen> {
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
-                          'Bạn có tối đa 4 lần bù công mỗi tháng. '
+                          'Bạn có tối đa 4 lần bổ sung công mỗi tháng. '
                           'Yêu cầu sẽ được Manager chi nhánh xem xét và duyệt.',
                           style: theme.textTheme.bodySmall
                               ?.copyWith(color: AppColors.info),
@@ -164,7 +164,7 @@ class _CorrectionRequestScreenState extends State<CorrectionRequestScreen> {
                                 height: 20,
                                 child: CircularProgressIndicator(strokeWidth: 2),
                               )
-                            : const Text('Gửi yêu cầu bù công'),
+                            : const Text('Gửi yêu cầu bổ sung công'),
                       ),
                     );
                   },

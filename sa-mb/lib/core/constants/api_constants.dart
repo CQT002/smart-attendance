@@ -29,6 +29,16 @@ class ApiConstants {
   static const String batchApproveCorrections = '$apiPrefix/admin/corrections/batch-approve';
   static const String batchApproveLeaves = '$apiPrefix/admin/leaves/batch-approve';
 
+  // Overtime (employee)
+  static const String overtime = '$apiPrefix/attendance/overtime';
+  static const String overtimeCheckIn = '$apiPrefix/attendance/overtime/check-in';
+  static const String overtimeCheckOut = '$apiPrefix/attendance/overtime/check-out';
+  static const String overtimeToday = '$apiPrefix/attendance/overtime/today';
+
+  // Overtime (manager/admin)
+  static const String adminOvertime = '$apiPrefix/admin/overtime';
+  static const String batchApproveOvertime = '$apiPrefix/admin/overtime/batch-approve';
+
   // Unified approvals (manager/admin)
   static const String approvals = '$apiPrefix/admin/approvals';
   static const String pendingApprovals = '$apiPrefix/admin/approvals/pending';

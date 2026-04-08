@@ -240,5 +240,111 @@ func GetMigrations() []*gormigrate.Migration {
 				return nil
 			},
 		},
+
+		// ── 010: Tạo bảng overtime_requests — Tăng ca ──
+		{
+			ID: "20250407000004",
+			Migrate: func(tx *gorm.DB) error {
+				type OvertimeRequest struct {
+					entity.OvertimeRequest
+				}
+				return tx.AutoMigrate(&OvertimeRequest{})
+			},
+			Rollback: func(tx *gorm.DB) error {
+				return tx.Migrator().DropTable("overtime_requests")
+			},
+		},
+
+		// ── 011: Thêm deleted_at vào tất cả bảng + bỏ column overtime + thêm overtime_request_id ──
+		{
+			ID: "20250407000005",
+			Migrate: func(tx *gorm.DB) error {
+				tables := []string{
+					"branches", "users", "shifts", "wifi_configs", "gps_configs",
+					"attendance_logs", "daily_summaries", "attendance_corrections", "leave_requests",
+				}
+				for _, t := range tables {
+					if err := tx.Exec("ALTER TABLE " + t + " ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ").Error; err != nil {
+						return err
+					}
+					if err := tx.Exec("CREATE INDEX IF NOT EXISTS idx_" + t + "_deleted_at ON " + t + " (deleted_at)").Error; err != nil {
+						return err
+					}
+				}
+
+				// Bỏ column overtime trong attendance_logs (track qua overtime_requests)
+				if err := tx.Exec("ALTER TABLE attendance_logs DROP COLUMN IF EXISTS overtime").Error; err != nil {
+					return err
+				}
+
+				// Thêm overtime_request_id vào attendance_logs (FK tới overtime_requests đã tạo ở migration 010)
+				sqls := []string{
+					"ALTER TABLE attendance_logs ADD COLUMN IF NOT EXISTS overtime_request_id BIGINT REFERENCES overtime_requests(id)",
+					"CREATE INDEX IF NOT EXISTS idx_attendance_overtime_request ON attendance_logs (overtime_request_id)",
+				}
+				for _, sql := range sqls {
+					if err := tx.Exec(sql).Error; err != nil {
+						return err
+					}
+				}
+
+				return nil
+			},
+			Rollback: func(tx *gorm.DB) error {
+				tables := []string{
+					"branches", "users", "shifts", "wifi_configs", "gps_configs",
+					"attendance_logs", "daily_summaries", "attendance_corrections", "leave_requests",
+				}
+				for _, t := range tables {
+					tx.Exec("DROP INDEX IF EXISTS idx_" + t + "_deleted_at")
+					tx.Exec("ALTER TABLE " + t + " DROP COLUMN IF EXISTS deleted_at")
+				}
+				tx.Exec("ALTER TABLE attendance_logs ADD COLUMN IF NOT EXISTS overtime DECIMAL(5,2) DEFAULT 0")
+				tx.Exec("DROP INDEX IF EXISTS idx_attendance_overtime_request")
+				tx.Exec("ALTER TABLE attendance_logs DROP COLUMN IF EXISTS overtime_request_id")
+				return nil
+			},
+		},
+
+		// ── 012: Bổ sung correction_type, overtime_request_id cho attendance_corrections ──
+		// Cho phép AttendanceLogID nullable (overtime correction không cần attendance log)
+		{
+			ID: "20250407000006",
+			Migrate: func(tx *gorm.DB) error {
+				sqls := []string{
+					// Thêm correction_type (default 'attendance' cho data cũ)
+					"ALTER TABLE attendance_corrections ADD COLUMN IF NOT EXISTS correction_type VARCHAR(20) NOT NULL DEFAULT 'attendance'",
+					// Thêm overtime_request_id FK
+					"ALTER TABLE attendance_corrections ADD COLUMN IF NOT EXISTS overtime_request_id BIGINT REFERENCES overtime_requests(id)",
+					"CREATE INDEX IF NOT EXISTS idx_correction_overtime_request ON attendance_corrections (overtime_request_id)",
+					// Cho phép attendance_log_id nullable (overtime corrections không dùng)
+					"ALTER TABLE attendance_corrections ALTER COLUMN attendance_log_id DROP NOT NULL",
+					// Drop unique index cũ trên attendance_log_id (vì giờ nullable)
+					"DROP INDEX IF EXISTS uniq_correction_log",
+					// Tạo partial unique index: chỉ enforce unique khi attendance_log_id NOT NULL và chưa soft-delete
+					"CREATE UNIQUE INDEX IF NOT EXISTS uniq_correction_log ON attendance_corrections (attendance_log_id) WHERE attendance_log_id IS NOT NULL AND deleted_at IS NULL",
+					// Unique: mỗi overtime_request chỉ có 1 correction (chưa soft-delete)
+					"CREATE UNIQUE INDEX IF NOT EXISTS uniq_correction_overtime ON attendance_corrections (overtime_request_id) WHERE overtime_request_id IS NOT NULL AND deleted_at IS NULL",
+				}
+				for _, sql := range sqls {
+					if err := tx.Exec(sql).Error; err != nil {
+						return err
+					}
+				}
+				return nil
+			},
+			Rollback: func(tx *gorm.DB) error {
+				sqls := []string{
+					"DROP INDEX IF EXISTS uniq_correction_overtime",
+					"DROP INDEX IF EXISTS idx_correction_overtime_request",
+					"ALTER TABLE attendance_corrections DROP COLUMN IF EXISTS overtime_request_id",
+					"ALTER TABLE attendance_corrections DROP COLUMN IF EXISTS correction_type",
+				}
+				for _, sql := range sqls {
+					tx.Exec(sql)
+				}
+				return nil
+			},
+		},
 	}
 }

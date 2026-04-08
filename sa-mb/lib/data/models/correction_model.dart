@@ -3,11 +3,13 @@ import 'user_model.dart';
 
 class CorrectionModel {
   final int id;
+  final String correctionType; // "attendance" | "overtime"
   final int userId;
   final int branchId;
-  final int attendanceLogId;
+  final int? attendanceLogId;
+  final int? overtimeRequestId;
   final String originalStatus;
-  final int creditCount; // late/early_leave=1, late_early_leave=2
+  final int creditCount;
   final String description;
   final String status; // pending | approved | rejected
   final int? processedById;
@@ -16,16 +18,18 @@ class CorrectionModel {
   final DateTime createdAt;
   final DateTime updatedAt;
 
-  // Relations (may be null depending on API preload)
+  // Relations
   final UserModel? user;
   final UserModel? processedBy;
   final AttendanceModel? attendanceLog;
 
   CorrectionModel({
     required this.id,
+    this.correctionType = 'attendance',
     required this.userId,
     required this.branchId,
-    required this.attendanceLogId,
+    this.attendanceLogId,
+    this.overtimeRequestId,
     required this.originalStatus,
     this.creditCount = 1,
     required this.description,
@@ -43,9 +47,11 @@ class CorrectionModel {
   factory CorrectionModel.fromJson(Map<String, dynamic> json) {
     return CorrectionModel(
       id: json['id'] as int? ?? 0,
+      correctionType: json['correction_type'] as String? ?? 'attendance',
       userId: json['user_id'] as int? ?? 0,
       branchId: json['branch_id'] as int? ?? 0,
-      attendanceLogId: json['attendance_log_id'] as int? ?? 0,
+      attendanceLogId: json['attendance_log_id'] as int?,
+      overtimeRequestId: json['overtime_request_id'] as int?,
       originalStatus: json['original_status'] as String? ?? '',
       creditCount: json['credit_count'] as int? ?? 1,
       description: json['description'] as String? ?? '',
@@ -79,6 +85,7 @@ class CorrectionModel {
   bool get isPending => status == 'pending';
   bool get isApproved => status == 'approved';
   bool get isRejected => status == 'rejected';
+  bool get isOvertime => correctionType == 'overtime';
 
   String get statusDisplay {
     switch (status) {
@@ -93,6 +100,9 @@ class CorrectionModel {
     }
   }
 
+  String get correctionTypeDisplay =>
+      isOvertime ? 'Bổ sung công tăng ca' : 'Bổ sung công ca chính thức';
+
   String get originalStatusDisplay {
     switch (originalStatus) {
       case 'late':
@@ -101,6 +111,10 @@ class CorrectionModel {
         return 'Về sớm';
       case 'late_early_leave':
         return 'Đi trễ - Về sớm';
+      case 'missing_checkin':
+        return 'Thiếu check-in OT';
+      case 'missing_checkout':
+        return 'Thiếu check-out OT';
       default:
         return originalStatus;
     }

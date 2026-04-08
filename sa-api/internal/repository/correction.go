@@ -41,7 +41,8 @@ func (r *correctionRepository) FindByID(ctx context.Context, id uint) (*entity.A
 	var correction entity.AttendanceCorrection
 	err := r.db.WithContext(ctx).
 		Preload("User").Preload("Branch").
-		Preload("AttendanceLog").Preload("ProcessedBy").
+		Preload("AttendanceLog").Preload("OvertimeRequest").
+		Preload("ProcessedBy").
 		First(&correction, "id = ?", id).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -64,6 +65,9 @@ func (r *correctionRepository) FindAll(ctx context.Context, filter domainrepo.Co
 	if filter.Status != "" {
 		query = query.Where("status = ?", filter.Status)
 	}
+	if filter.CorrectionType != "" {
+		query = query.Where("correction_type = ?", filter.CorrectionType)
+	}
 
 	var total int64
 	if err := query.Count(&total).Error; err != nil {
@@ -74,7 +78,8 @@ func (r *correctionRepository) FindAll(ctx context.Context, filter domainrepo.Co
 	var corrections []*entity.AttendanceCorrection
 	err := query.
 		Preload("User").Preload("Branch").
-		Preload("AttendanceLog").Preload("ProcessedBy").
+		Preload("AttendanceLog").Preload("OvertimeRequest").
+		Preload("ProcessedBy").
 		Order("created_at DESC").
 		Offset(offset).Limit(filter.Limit).
 		Find(&corrections).Error
@@ -85,19 +90,23 @@ func (r *correctionRepository) FindAll(ctx context.Context, filter domainrepo.Co
 	return corrections, total, nil
 }
 
-// CountByUserInMonth đếm tổng credit (SUM) trong tháng
-// late/early_leave = 1 credit, late_early_leave = 2 credits
-// Index: idx_correction_created_at (user_id, created_at)
-func (r *correctionRepository) CountByUserInMonth(ctx context.Context, userID uint, month time.Time) (int64, error) {
+// CountByUserInMonth đếm tổng credit (SUM) trong tháng, lọc theo loại correction
+// correctionType rỗng = đếm tất cả
+func (r *correctionRepository) CountByUserInMonth(ctx context.Context, userID uint, month time.Time, correctionType entity.CorrectionType) (int64, error) {
 	startOfMonth := time.Date(month.Year(), month.Month(), 1, 0, 0, 0, 0, month.Location())
 	endOfMonth := startOfMonth.AddDate(0, 1, 0)
 
-	var total int64
-	err := r.db.WithContext(ctx).
+	query := r.db.WithContext(ctx).
 		Model(&entity.AttendanceCorrection{}).
 		Select("COALESCE(SUM(credit_count), 0)").
-		Where("user_id = ? AND created_at >= ? AND created_at < ?", userID, startOfMonth, endOfMonth).
-		Scan(&total).Error
+		Where("user_id = ? AND created_at >= ? AND created_at < ?", userID, startOfMonth, endOfMonth)
+
+	if correctionType != "" {
+		query = query.Where("correction_type = ?", correctionType)
+	}
+
+	var total int64
+	err := query.Scan(&total).Error
 	if err != nil {
 		return 0, apperrors.Wrap(err, 500, "DB_ERROR", "Lỗi đếm hạn mức chấm công bù")
 	}
@@ -108,6 +117,20 @@ func (r *correctionRepository) FindByAttendanceLogID(ctx context.Context, logID 
 	var correction entity.AttendanceCorrection
 	err := r.db.WithContext(ctx).
 		Where("attendance_log_id = ?", logID).
+		First(&correction).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, apperrors.Wrap(err, 500, "DB_ERROR", "Lỗi truy vấn yêu cầu chấm công bù")
+	}
+	return &correction, nil
+}
+
+func (r *correctionRepository) FindByOvertimeRequestID(ctx context.Context, otID uint) (*entity.AttendanceCorrection, error) {
+	var correction entity.AttendanceCorrection
+	err := r.db.WithContext(ctx).
+		Where("overtime_request_id = ?", otID).
 		First(&correction).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {

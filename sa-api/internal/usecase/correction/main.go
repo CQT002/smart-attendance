@@ -16,18 +16,21 @@ import (
 )
 
 type correctionUsecase struct {
-	correctionRepo    repository.CorrectionRepository
-	attendanceRepo    repository.AttendanceRepository
-	userRepo          repository.UserRepository
-	shiftRepo         repository.ShiftRepository
-	db                *gorm.DB
-	maxCreditPerMonth int64
+	correctionRepo            repository.CorrectionRepository
+	attendanceRepo            repository.AttendanceRepository
+	overtimeRepo              repository.OvertimeRepository
+	userRepo                  repository.UserRepository
+	shiftRepo                 repository.ShiftRepository
+	db                        *gorm.DB
+	maxCreditPerMonth         int64
+	overtimeMaxCreditPerMonth int64
 }
 
 // NewCorrectionUsecase tạo instance CorrectionUsecase
 func NewCorrectionUsecase(
 	correctionRepo repository.CorrectionRepository,
 	attendanceRepo repository.AttendanceRepository,
+	overtimeRepo repository.OvertimeRepository,
 	userRepo repository.UserRepository,
 	shiftRepo repository.ShiftRepository,
 	db *gorm.DB,
@@ -35,54 +38,65 @@ func NewCorrectionUsecase(
 ) usecase.CorrectionUsecase {
 	maxCredit := int64(correctionCfg.MaxPerMonth)
 	if maxCredit <= 0 {
-		maxCredit = 4 // fallback default
+		maxCredit = 4
+	}
+	otMaxCredit := int64(correctionCfg.OvertimeMaxPerMonth)
+	if otMaxCredit <= 0 {
+		otMaxCredit = 4
 	}
 	return &correctionUsecase{
-		correctionRepo:    correctionRepo,
-		attendanceRepo:    attendanceRepo,
-		userRepo:          userRepo,
-		shiftRepo:         shiftRepo,
-		db:                db,
-		maxCreditPerMonth: maxCredit,
+		correctionRepo:            correctionRepo,
+		attendanceRepo:            attendanceRepo,
+		overtimeRepo:              overtimeRepo,
+		userRepo:                  userRepo,
+		shiftRepo:                 shiftRepo,
+		db:                        db,
+		maxCreditPerMonth:         maxCredit,
+		overtimeMaxCreditPerMonth: otMaxCredit,
 	}
 }
 
 // Create tạo yêu cầu chấm công bù
 //
-// Flow:
-//  1. Validate description không rỗng
-//  2. Tìm AttendanceLog gốc, kiểm tra trạng thái hợp lệ (late, early_leave, late_early_leave)
-//  3. Kiểm tra chưa có yêu cầu trùng cho cùng attendance_log
-//  4. Kiểm tra hạn mức 4 lần/tháng
-//  5. Tạo yêu cầu
+// Hai loại:
+//   - attendance: bù cho ca chính thức (late, early_leave, late_early_leave)
+//   - overtime: bù cho tăng ca (missing_checkin, missing_checkout)
 func (u *correctionUsecase) Create(ctx context.Context, req usecase.CreateCorrectionRequest) (*entity.AttendanceCorrection, error) {
-	logger := slog.With("user_id", req.UserID, "attendance_log_id", req.AttendanceLogID)
+	logger := slog.With("user_id", req.UserID, "correction_type", req.CorrectionType)
 
-	// 1. Validate description
+	// Validate description
 	if req.Description == "" {
 		return nil, apperrors.NewValidationError(map[string]string{
 			"description": "Vui lòng nhập lý do xin bù công",
 		})
 	}
 
-	// 2. Tìm và validate AttendanceLog gốc
+	// Default correction type
+	corrType := req.CorrectionType
+	if corrType == "" {
+		corrType = entity.CorrectionTypeAttendance
+	}
+
+	if corrType == entity.CorrectionTypeOvertime {
+		return u.createOvertimeCorrection(ctx, req, logger)
+	}
+	return u.createAttendanceCorrection(ctx, req, logger)
+}
+
+// createAttendanceCorrection bù công ca chính thức (logic cũ)
+func (u *correctionUsecase) createAttendanceCorrection(ctx context.Context, req usecase.CreateCorrectionRequest, logger *slog.Logger) (*entity.AttendanceCorrection, error) {
 	attendLog, err := u.attendanceRepo.FindByID(ctx, req.AttendanceLogID)
 	if err != nil {
 		return nil, err
 	}
-
-	// Kiểm tra log thuộc về user này
 	if attendLog.UserID != req.UserID {
 		return nil, apperrors.ErrForbidden
 	}
-
-	// Chỉ cho phép bù cho status: late, early_leave, late_early_leave
 	if !isCorrectableStatus(attendLog.Status) {
 		logger.Warn("correction rejected - invalid status", "status", attendLog.Status)
 		return nil, apperrors.ErrCorrectionInvalidStatus
 	}
 
-	// 3. Kiểm tra chưa có yêu cầu trùng
 	existing, err := u.correctionRepo.FindByAttendanceLogID(ctx, req.AttendanceLogID)
 	if err != nil {
 		return nil, err
@@ -91,10 +105,9 @@ func (u *correctionUsecase) Create(ctx context.Context, req usecase.CreateCorrec
 		return nil, apperrors.ErrCorrectionAlreadyExists
 	}
 
-	// 4. Kiểm tra hạn mức 4 lần/tháng (SUM credit_count)
 	creditNeeded := int64(entity.CreditCountForStatus(attendLog.Status))
 	now := utils.Now()
-	usedCredits, err := u.correctionRepo.CountByUserInMonth(ctx, req.UserID, now)
+	usedCredits, err := u.correctionRepo.CountByUserInMonth(ctx, req.UserID, now, entity.CorrectionTypeAttendance)
 	if err != nil {
 		return nil, err
 	}
@@ -104,11 +117,11 @@ func (u *correctionUsecase) Create(ctx context.Context, req usecase.CreateCorrec
 		return nil, apperrors.ErrCorrectionLimitExceeded
 	}
 
-	// 5. Tạo yêu cầu
 	correction := &entity.AttendanceCorrection{
+		CorrectionType:  entity.CorrectionTypeAttendance,
 		UserID:          req.UserID,
 		BranchID:        attendLog.BranchID,
-		AttendanceLogID: req.AttendanceLogID,
+		AttendanceLogID: &req.AttendanceLogID,
 		OriginalStatus:  attendLog.Status,
 		CreditCount:     int(creditNeeded),
 		Description:     req.Description,
@@ -127,34 +140,134 @@ func (u *correctionUsecase) Create(ctx context.Context, req usecase.CreateCorrec
 	return correction, nil
 }
 
+// createOvertimeCorrection bù công tăng ca
+//
+// Kịch bản:
+//   - OT có check-in nhưng thiếu check-out → original_status = missing_checkout
+//   - OT có check-out nhưng thiếu check-in → original_status = missing_checkin
+func (u *correctionUsecase) createOvertimeCorrection(ctx context.Context, req usecase.CreateCorrectionRequest, logger *slog.Logger) (*entity.AttendanceCorrection, error) {
+	// Tìm OvertimeRequest gốc
+	otReq, err := u.overtimeRepo.FindByID(ctx, req.OvertimeRequestID)
+	if err != nil {
+		return nil, err
+	}
+	if otReq.UserID != req.UserID {
+		return nil, apperrors.ErrForbidden
+	}
+
+	// Chỉ cho phép bù khi OT ở trạng thái init (thiếu 1 trong 2)
+	if !otReq.IsInit() {
+		return nil, apperrors.NewValidationError(map[string]string{
+			"overtime_request_id": "Yêu cầu tăng ca đã đủ check-in/check-out hoặc đã được xử lý",
+		})
+	}
+
+	// Xác định thiếu gì
+	var originalStatus entity.AttendanceStatus
+	if otReq.IsCheckedIn() && !otReq.IsCheckedOut() {
+		originalStatus = entity.StatusMissingCheckout
+	} else if !otReq.IsCheckedIn() && otReq.IsCheckedOut() {
+		originalStatus = entity.StatusMissingCheckin
+	} else {
+		return nil, apperrors.NewValidationError(map[string]string{
+			"overtime_request_id": "Yêu cầu tăng ca không có dữ liệu check-in hoặc check-out",
+		})
+	}
+
+	// Kiểm tra chưa có correction trùng
+	existing, err := u.correctionRepo.FindByOvertimeRequestID(ctx, req.OvertimeRequestID)
+	if err != nil {
+		return nil, err
+	}
+	if existing != nil {
+		return nil, apperrors.ErrCorrectionAlreadyExists
+	}
+
+	// Kiểm tra hạn mức (riêng biệt cho overtime)
+	now := utils.Now()
+	usedCredits, err := u.correctionRepo.CountByUserInMonth(ctx, req.UserID, now, entity.CorrectionTypeOvertime)
+	if err != nil {
+		return nil, err
+	}
+	if usedCredits+1 > u.overtimeMaxCreditPerMonth {
+		logger.Warn("overtime correction rejected - monthly limit exceeded",
+			"used", usedCredits, "max", u.overtimeMaxCreditPerMonth)
+		return nil, apperrors.ErrCorrectionLimitExceeded
+	}
+
+	otID := req.OvertimeRequestID
+	correction := &entity.AttendanceCorrection{
+		CorrectionType:    entity.CorrectionTypeOvertime,
+		UserID:            req.UserID,
+		BranchID:          otReq.BranchID,
+		OvertimeRequestID: &otID,
+		OriginalStatus:    originalStatus,
+		CreditCount:       1,
+		Description:       req.Description,
+		Status:            entity.CorrectionStatusPending,
+	}
+
+	// Transaction: tạo correction + bổ sung thời gian thiếu + chuyển OT sang pending
+	err = u.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(correction).Error; err != nil {
+			return err
+		}
+
+		otDate := otReq.Date
+		otUpdates := map[string]interface{}{
+			"status": entity.OvertimeStatusPending,
+		}
+
+		switch originalStatus {
+		case entity.StatusMissingCheckout:
+			// Có check-in, thiếu check-out → bổ sung 22:00
+			otEnd := time.Date(otDate.Year(), otDate.Month(), otDate.Day(), 22, 0, 0, 0, utils.HCM)
+			otUpdates["actual_checkout"] = otEnd
+		case entity.StatusMissingCheckin:
+			// Có check-out, thiếu check-in → bổ sung 18:00
+			otStart := time.Date(otDate.Year(), otDate.Month(), otDate.Day(), 18, 0, 0, 0, utils.HCM)
+			otUpdates["actual_checkin"] = otStart
+		}
+
+		return tx.Model(&entity.OvertimeRequest{}).
+			Where("id = ?", otReq.ID).
+			Updates(otUpdates).Error
+	})
+	if err != nil {
+		slog.Error("overtime correction create failed", "error", err)
+		return nil, apperrors.Wrap(err, 500, "DB_ERROR", "Lỗi tạo yêu cầu bổ sung công tăng ca")
+	}
+
+	logger.Info("overtime correction request created",
+		"correction_id", correction.ID,
+		"overtime_request_id", req.OvertimeRequestID,
+		"original_status", originalStatus,
+	)
+
+	return correction, nil
+}
+
 // Process duyệt hoặc từ chối yêu cầu chấm công bù
 //
-// Khi approved — chạy trong transaction:
-//  1. Cập nhật AttendanceLog gốc: status → "present" (VALIDATED)
-//  2. Ghi audit log: processed_by_id, processed_at, manager_note
-//  3. Cập nhật correction status → approved
+// Phân nhánh theo correction_type:
+//   - attendance: cập nhật AttendanceLog gốc
+//   - overtime: bổ sung thời gian thiếu cho OT và approve OvertimeRequest
 func (u *correctionUsecase) Process(ctx context.Context, req usecase.ProcessCorrectionRequest) (*entity.AttendanceCorrection, error) {
 	logger := slog.With("correction_id", req.CorrectionID, "processed_by", req.ProcessedByID)
 
-	// Validate status input
 	if req.Status != entity.CorrectionStatusApproved && req.Status != entity.CorrectionStatusRejected {
 		return nil, apperrors.NewValidationError(map[string]string{
 			"status": "Trạng thái phải là approved hoặc rejected",
 		})
 	}
 
-	// Tìm correction
 	correction, err := u.correctionRepo.FindByID(ctx, req.CorrectionID)
 	if err != nil {
 		return nil, err
 	}
-
-	// Chỉ xử lý yêu cầu PENDING
 	if !correction.IsPending() {
 		return nil, apperrors.ErrCorrectionNotPending
 	}
-
-	// Manager không được tự duyệt cho chính mình
 	if correction.UserID == req.ProcessedByID {
 		logger.Warn("self-approval attempt blocked")
 		return nil, apperrors.ErrCorrectionSelfApprove
@@ -162,96 +275,7 @@ func (u *correctionUsecase) Process(ctx context.Context, req usecase.ProcessCorr
 
 	now := utils.Now()
 
-	if req.Status == entity.CorrectionStatusApproved {
-		// Lấy attendance log gốc để update
-		attendLog, err := u.attendanceRepo.FindByID(ctx, correction.AttendanceLogID)
-		if err != nil {
-			return nil, err
-		}
-
-		// Lấy shift để biết giờ chuẩn
-		shift, _ := u.shiftRepo.FindDefault(ctx, correction.BranchID)
-		if shift == nil {
-			shift = &entity.Shift{StartTime: "08:00", EndTime: "17:00", WorkHours: 8}
-		}
-
-		// Transaction: cập nhật attendance_log + correction
-		err = u.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-			updates := map[string]interface{}{
-				"status": entity.StatusPresent,
-			}
-
-			// Tính giờ chuẩn theo shift cho ngày đó
-			startH, startM := parseTime(shift.StartTime)
-			endH, endM := parseTime(shift.EndTime)
-			shiftStart := time.Date(attendLog.Date.Year(), attendLog.Date.Month(), attendLog.Date.Day(), startH, startM, 0, 0, utils.HCM)
-			shiftEnd := time.Date(attendLog.Date.Year(), attendLog.Date.Month(), attendLog.Date.Day(), endH, endM, 0, 0, utils.HCM)
-
-			switch correction.OriginalStatus {
-			case entity.StatusLate:
-				// Check-in trễ, check-out đúng giờ → fix check-in về giờ shift start
-				updates["check_in_time"] = shiftStart
-			case entity.StatusEarlyLeave:
-				// Check-in đúng giờ, check-out sớm → fix check-out về giờ shift end
-				updates["check_out_time"] = shiftEnd
-			case entity.StatusLateEarlyLeave:
-				// Cả hai trễ + sớm → fix cả check-in và check-out
-				updates["check_in_time"] = shiftStart
-				updates["check_out_time"] = shiftEnd
-			}
-
-			// Recalculate work hours
-			checkIn := shiftStart
-			checkOut := shiftEnd
-			if correction.OriginalStatus == entity.StatusLate {
-				// Chỉ fix check-in, giữ check-out gốc
-				if attendLog.CheckOutTime != nil {
-					checkOut = *attendLog.CheckOutTime
-				}
-			} else if correction.OriginalStatus == entity.StatusEarlyLeave {
-				// Chỉ fix check-out, giữ check-in gốc
-				if attendLog.CheckInTime != nil {
-					checkIn = *attendLog.CheckInTime
-				}
-			}
-			workHours := checkOut.Sub(checkIn).Hours()
-			if workHours < 0 {
-				workHours = 0
-			}
-			updates["work_hours"] = float64(int(workHours*100)) / 100
-
-			// Recalculate overtime
-			if workHours > shift.WorkHours {
-				updates["overtime"] = float64(int((workHours-shift.WorkHours)*100)) / 100
-			} else {
-				updates["overtime"] = 0
-			}
-
-			if err := tx.Model(&entity.AttendanceLog{}).
-				Where("id = ?", correction.AttendanceLogID).
-				Updates(updates).Error; err != nil {
-				return err
-			}
-
-			// Ghi audit log và cập nhật correction
-			correction.Status = entity.CorrectionStatusApproved
-			correction.ProcessedByID = &req.ProcessedByID
-			correction.ProcessedAt = &now
-			correction.ManagerNote = req.ManagerNote
-
-			return tx.Save(correction).Error
-		})
-		if err != nil {
-			slog.Error("correction approval transaction failed", "error", err)
-			return nil, apperrors.Wrap(err, 500, "DB_ERROR", "Lỗi duyệt yêu cầu chấm công bù")
-		}
-
-		logger.Info("correction approved",
-			"attendance_log_id", correction.AttendanceLogID,
-			"original_status", correction.OriginalStatus,
-		)
-	} else {
-		// Rejected — không cần transaction phức tạp
+	if req.Status == entity.CorrectionStatusRejected {
 		correction.Status = entity.CorrectionStatusRejected
 		correction.ProcessedByID = &req.ProcessedByID
 		correction.ProcessedAt = &now
@@ -260,12 +284,196 @@ func (u *correctionUsecase) Process(ctx context.Context, req usecase.ProcessCorr
 		if err := u.correctionRepo.Update(ctx, correction); err != nil {
 			return nil, err
 		}
-
-		logger.Info("correction rejected", "attendance_log_id", correction.AttendanceLogID)
+		logger.Info("correction rejected", "correction_type", correction.CorrectionType)
+		return u.correctionRepo.FindByID(ctx, correction.ID)
 	}
 
-	// Reload để có đầy đủ relations
+	// === APPROVED ===
+	if correction.IsOvertime() {
+		err = u.processOvertimeCorrection(ctx, correction, req.ProcessedByID, req.ManagerNote, now)
+	} else {
+		err = u.processAttendanceCorrection(ctx, correction, req.ProcessedByID, req.ManagerNote, now)
+	}
+	if err != nil {
+		return nil, err
+	}
+
 	return u.correctionRepo.FindByID(ctx, correction.ID)
+}
+
+// processAttendanceCorrection duyệt bù công ca chính thức (logic cũ)
+func (u *correctionUsecase) processAttendanceCorrection(
+	ctx context.Context,
+	correction *entity.AttendanceCorrection,
+	processedByID uint,
+	managerNote string,
+	now time.Time,
+) error {
+	if correction.AttendanceLogID == nil {
+		return apperrors.ErrNotFound
+	}
+
+	attendLog, err := u.attendanceRepo.FindByID(ctx, *correction.AttendanceLogID)
+	if err != nil {
+		return err
+	}
+
+	shift, _ := u.shiftRepo.FindDefault(ctx, correction.BranchID)
+	if shift == nil {
+		shift = &entity.Shift{StartTime: "08:00", EndTime: "17:00", WorkHours: 8}
+	}
+
+	err = u.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		updates := map[string]interface{}{
+			"status": entity.StatusPresent,
+		}
+
+		startH, startM := parseTime(shift.StartTime)
+		endH, endM := parseTime(shift.EndTime)
+		shiftStart := time.Date(attendLog.Date.Year(), attendLog.Date.Month(), attendLog.Date.Day(), startH, startM, 0, 0, utils.HCM)
+		shiftEnd := time.Date(attendLog.Date.Year(), attendLog.Date.Month(), attendLog.Date.Day(), endH, endM, 0, 0, utils.HCM)
+
+		switch correction.OriginalStatus {
+		case entity.StatusLate:
+			updates["check_in_time"] = shiftStart
+		case entity.StatusEarlyLeave:
+			updates["check_out_time"] = shiftEnd
+		case entity.StatusLateEarlyLeave:
+			updates["check_in_time"] = shiftStart
+			updates["check_out_time"] = shiftEnd
+		}
+
+		checkIn := shiftStart
+		checkOut := shiftEnd
+		if correction.OriginalStatus == entity.StatusLate {
+			if attendLog.CheckOutTime != nil {
+				checkOut = *attendLog.CheckOutTime
+			}
+		} else if correction.OriginalStatus == entity.StatusEarlyLeave {
+			if attendLog.CheckInTime != nil {
+				checkIn = *attendLog.CheckInTime
+			}
+		}
+		workHours := checkOut.Sub(checkIn).Hours()
+		if workHours < 0 {
+			workHours = 0
+		}
+		updates["work_hours"] = float64(int(workHours*100)) / 100
+
+		if err := tx.Model(&entity.AttendanceLog{}).
+			Where("id = ?", *correction.AttendanceLogID).
+			Updates(updates).Error; err != nil {
+			return err
+		}
+
+		correction.Status = entity.CorrectionStatusApproved
+		correction.ProcessedByID = &processedByID
+		correction.ProcessedAt = &now
+		correction.ManagerNote = managerNote
+
+		return tx.Save(correction).Error
+	})
+	if err != nil {
+		slog.Error("attendance correction approval failed", "error", err)
+		return apperrors.Wrap(err, 500, "DB_ERROR", "Lỗi duyệt yêu cầu chấm công bù")
+	}
+
+	slog.Info("attendance correction approved",
+		"correction_id", correction.ID,
+		"attendance_log_id", correction.AttendanceLogID,
+	)
+	return nil
+}
+
+// processOvertimeCorrection duyệt bù công tăng ca
+//
+// Thời gian thiếu đã được bổ sung lúc tạo correction (createOvertimeCorrection).
+// Process chỉ cần: tính bo tròn → approve OT.
+func (u *correctionUsecase) processOvertimeCorrection(
+	ctx context.Context,
+	correction *entity.AttendanceCorrection,
+	processedByID uint,
+	managerNote string,
+	now time.Time,
+) error {
+	if correction.OvertimeRequestID == nil {
+		return apperrors.ErrNotFound
+	}
+
+	// Reload OT (đã có đủ actual_checkin + actual_checkout từ lúc tạo correction)
+	otReq, err := u.overtimeRepo.FindByID(ctx, *correction.OvertimeRequestID)
+	if err != nil {
+		return err
+	}
+
+	if otReq.ActualCheckin == nil || otReq.ActualCheckout == nil {
+		return apperrors.ErrOvertimeNotCompleted
+	}
+
+	err = u.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// Tính bo tròn
+		otDate := otReq.Date
+		calcStart := clampOTStart(*otReq.ActualCheckin, otDate)
+		calcEnd := clampOTEnd(*otReq.ActualCheckout, otDate)
+		totalHours := calcEnd.Sub(calcStart).Hours()
+		if totalHours < 0 {
+			totalHours = 0
+		}
+		if totalHours > 4 {
+			totalHours = 4
+		}
+		totalHours = float64(int(totalHours*100)) / 100
+
+		// Approve OT request
+		otReq.CalculatedStart = &calcStart
+		otReq.CalculatedEnd = &calcEnd
+		otReq.TotalHours = totalHours
+		otReq.Status = entity.OvertimeStatusApproved
+		otReq.ManagerID = &processedByID
+		otReq.ProcessedAt = &now
+		otReq.ManagerNote = managerNote
+
+		if err := tx.Save(otReq).Error; err != nil {
+			return err
+		}
+
+		// Approve correction
+		correction.Status = entity.CorrectionStatusApproved
+		correction.ProcessedByID = &processedByID
+		correction.ProcessedAt = &now
+		correction.ManagerNote = managerNote
+
+		return tx.Save(correction).Error
+	})
+	if err != nil {
+		slog.Error("overtime correction approval failed", "error", err)
+		return apperrors.Wrap(err, 500, "DB_ERROR", "Lỗi duyệt yêu cầu bù công tăng ca")
+	}
+
+	slog.Info("overtime correction approved",
+		"correction_id", correction.ID,
+		"overtime_request_id", correction.OvertimeRequestID,
+		"total_hours", otReq.TotalHours,
+	)
+	return nil
+}
+
+// clampOTStart trả về Max(actualCheckin, 18:00)
+func clampOTStart(actual time.Time, date time.Time) time.Time {
+	otStart := time.Date(date.Year(), date.Month(), date.Day(), 18, 0, 0, 0, utils.HCM)
+	if actual.Before(otStart) {
+		return otStart
+	}
+	return actual
+}
+
+// clampOTEnd trả về Min(actualCheckout, 22:00)
+func clampOTEnd(actual time.Time, date time.Time) time.Time {
+	otEnd := time.Date(date.Year(), date.Month(), date.Day(), 22, 0, 0, 0, utils.HCM)
+	if actual.After(otEnd) {
+		return otEnd
+	}
+	return actual
 }
 
 func (u *correctionUsecase) GetByID(ctx context.Context, id uint) (*entity.AttendanceCorrection, error) {

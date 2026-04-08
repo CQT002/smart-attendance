@@ -1,6 +1,10 @@
 package entity
 
-import "time"
+import (
+	"time"
+
+	"gorm.io/gorm"
+)
 
 // UserRole định nghĩa vai trò của người dùng trong hệ thống (RBAC 3 cấp)
 type UserRole string
@@ -50,6 +54,8 @@ type User struct {
 
 	// Relations
 	AttendanceLogs []AttendanceLog `gorm:"foreignKey:UserID" json:"-"`
+
+	DeletedAt gorm.DeletedAt `gorm:"index" json:"-"`
 }
 
 func (User) TableName() string { return "users" }

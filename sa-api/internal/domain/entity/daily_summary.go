@@ -1,6 +1,10 @@
 package entity
 
-import "time"
+import (
+	"time"
+
+	"gorm.io/gorm"
+)
 
 // DailySummary là bảng tổng hợp chấm công pre-computed theo chi nhánh mỗi ngày.
 //
@@ -50,8 +54,9 @@ type DailySummary struct {
 	// Thời điểm tính toán lần cuối — dùng để biết data có stale không
 	ComputedAt time.Time `gorm:"not null" json:"computed_at"`
 
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	CreatedAt time.Time  `json:"created_at"`
+	UpdatedAt time.Time  `json:"updated_at"`
+	DeletedAt gorm.DeletedAt `gorm:"index" json:"-"`
 }
 
 func (DailySummary) TableName() string { return "daily_summaries" }

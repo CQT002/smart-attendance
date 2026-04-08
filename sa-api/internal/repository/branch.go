@@ -68,7 +68,7 @@ func (r *branchRepository) FindByID(ctx context.Context, id uint) (*entity.Branc
 	}
 	var gps gpsInfo
 	if err := r.db.WithContext(ctx).Raw(
-		"SELECT latitude, longitude, radius FROM gps_configs WHERE branch_id = ? AND is_active = true ORDER BY id ASC LIMIT 1", id,
+		"SELECT latitude, longitude, radius FROM gps_configs WHERE branch_id = ? AND is_active = true AND deleted_at IS NULL ORDER BY id ASC LIMIT 1", id,
 	).Scan(&gps).Error; err == nil && gps.Latitude != 0 {
 		branch.Latitude = &gps.Latitude
 		branch.Longitude = &gps.Longitude
@@ -134,7 +134,7 @@ func (r *branchRepository) FindAll(ctx context.Context, filter domainrepo.Branch
 		}
 		var wifiCounts []wifiCount
 		r.db.WithContext(ctx).Raw(
-			"SELECT branch_id, COUNT(*) as count FROM wifi_configs WHERE branch_id IN ? AND is_active = true GROUP BY branch_id",
+			"SELECT branch_id, COUNT(*) as count FROM wifi_configs WHERE branch_id IN ? AND is_active = true AND deleted_at IS NULL GROUP BY branch_id",
 			branchIDs,
 		).Scan(&wifiCounts)
 		wifiMap := make(map[uint]int64)
@@ -152,7 +152,7 @@ func (r *branchRepository) FindAll(ctx context.Context, filter domainrepo.Branch
 		var gpsInfos []gpsInfo
 		r.db.WithContext(ctx).Raw(
 			`SELECT DISTINCT ON (branch_id) branch_id, latitude, longitude, radius
-			 FROM gps_configs WHERE branch_id IN ? AND is_active = true
+			 FROM gps_configs WHERE branch_id IN ? AND is_active = true AND deleted_at IS NULL
 			 ORDER BY branch_id, id ASC`,
 			branchIDs,
 		).Scan(&gpsInfos)

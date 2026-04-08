@@ -1,6 +1,10 @@
 package entity
 
-import "time"
+import (
+	"time"
+
+	"gorm.io/gorm"
+)
 
 // GPSConfig định nghĩa vùng địa lý (geofence) cho phép chấm công tại chi nhánh.
 // Một chi nhánh có thể có nhiều geofence (tầng 1, tầng 5, bãi xe...).
@@ -22,8 +26,9 @@ type GPSConfig struct {
 	// idx_gps_branch_active priority:2
 	IsActive bool `gorm:"default:true;index:idx_gps_branch_active,priority:2" json:"is_active"`
 
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	CreatedAt time.Time  `json:"created_at"`
+	UpdatedAt time.Time  `json:"updated_at"`
+	DeletedAt gorm.DeletedAt `gorm:"index" json:"-"`
 }
 
 func (GPSConfig) TableName() string { return "gps_configs" }

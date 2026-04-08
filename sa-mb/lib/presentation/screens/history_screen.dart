@@ -6,13 +6,18 @@ import '../../core/utils/date_utils.dart';
 import '../../data/models/attendance_model.dart';
 import '../../data/models/correction_model.dart';
 import '../../data/models/leave_model.dart';
+import '../../data/models/overtime_model.dart';
 import '../../domain/repositories/correction_repository.dart';
 import '../../domain/repositories/leave_repository.dart';
+import '../../domain/repositories/overtime_repository.dart';
 import '../blocs/attendance/attendance_bloc.dart';
 import '../blocs/attendance/attendance_event.dart';
 import '../blocs/attendance/attendance_state.dart';
 import '../blocs/correction/correction_bloc.dart';
+import '../blocs/correction/correction_event.dart';
+import '../blocs/correction/correction_state.dart';
 import '../blocs/leave/leave_bloc.dart';
+import '../widgets/app_toast.dart';
 import 'correction_request_screen.dart';
 import 'leave_request_screen.dart';
 
@@ -30,6 +35,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
   List<AttendanceModel> _cachedRecords = [];
   Map<int, CorrectionModel> _correctionsByLogId = {}; // attendance_log_id → correction
   Map<String, LeaveModel> _leavesByDate = {}; // "yyyy-MM-dd" → leave
+  Map<String, OvertimeModel> _overtimeByDate = {}; // "yyyy-MM-dd" → overtime
   bool _isLoadingHistory = false;
   final ScrollController _scrollController = ScrollController();
 
@@ -54,6 +60,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
         );
     _loadCorrections();
     _loadLeaves();
+    _loadOvertime();
     setState(() {
       _selectedDayRecord = null;
       _selectedDay = null;
@@ -66,7 +73,8 @@ class _HistoryScreenState extends State<HistoryScreen> {
       final corrections = await repo.getMyCorrections(limit: 100);
       setState(() {
         _correctionsByLogId = {
-          for (final c in corrections) c.attendanceLogId: c,
+          for (final c in corrections)
+            if (c.attendanceLogId != null) c.attendanceLogId!: c,
         };
       });
     } catch (_) {
@@ -89,6 +97,21 @@ class _HistoryScreenState extends State<HistoryScreen> {
     }
   }
 
+  Future<void> _loadOvertime() async {
+    try {
+      final repo = context.read<OvertimeRepository>();
+      final overtimes = await repo.getMyList(limit: 100);
+      setState(() {
+        _overtimeByDate = {
+          for (final ot in overtimes)
+            _dateKey(ot.date): ot,
+        };
+      });
+    } catch (_) {
+      // Fail silently — overtime info is optional
+    }
+  }
+
   void _selectDay(DateTime date, AttendanceModel? record) {
     setState(() {
       _selectedDay = date;
@@ -97,8 +120,14 @@ class _HistoryScreenState extends State<HistoryScreen> {
     if (record != null) {
       _showDayDetail(record);
     } else {
-      // Ngày không có record — cho phép đăng ký nghỉ phép (ngày tương lai hoặc ngày vắng chưa có log)
-      _showLeaveOnlySheet(date);
+      // Kiểm tra có OT record cho ngày này không (dù không có attendance log)
+      final otRecord = _overtimeByDate[_dateKey(date)];
+      if (otRecord != null) {
+        _showOvertimeOnlySheet(date, otRecord);
+      } else {
+        // Ngày không có record — cho phép đăng ký nghỉ phép
+        _showLeaveOnlySheet(date);
+      }
     }
   }
 
@@ -107,6 +136,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
     final correctable = _isCorrectable(record);
     final existingCorrection = _correctionsByLogId[record.id];
     final existingLeave = _leavesByDate[_dateKey(record.date)];
+    final existingOvertime = _overtimeByDate[_dateKey(record.date)];
 
     showModalBottomSheet(
       context: context,
@@ -137,6 +167,16 @@ class _HistoryScreenState extends State<HistoryScreen> {
                   style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
                 ),
                 _buildStatusBadge(record),
+                if (record.overtimeRequestId != null)
+                  Container(
+                    margin: const EdgeInsets.only(left: 6),
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: Colors.deepPurple.shade50,
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: const Text('OT', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.deepPurple)),
+                  ),
               ],
             ),
             const SizedBox(height: 16),
@@ -181,7 +221,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                           _openCorrectionRequest();
                         },
                         icon: const Icon(Icons.edit_calendar_outlined, size: 18),
-                        label: const Text('Bù công',
+                        label: const Text('Bổ sung công',
                           style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: AppColors.primary,
@@ -221,8 +261,219 @@ class _HistoryScreenState extends State<HistoryScreen> {
                 ),
               ),
             ],
+            // Thông tin tăng ca (nếu có)
+            if (existingOvertime != null) ...[
+              const SizedBox(height: 16),
+              _buildOvertimeInfo(theme, existingOvertime, onClose: () => Navigator.pop(ctx)),
+            ],
           ],
         ),
+      ),
+    );
+  }
+
+  void _openOvertimeCorrectionDialog(OvertimeModel ot) {
+    final descController = TextEditingController();
+    final formKey = GlobalKey<FormState>();
+    final missing = (ot.isCheckedIn && !ot.isCheckedOut) ? 'check-out' : 'check-in';
+    // Capture bloc reference before dialog (dialog has a different BuildContext)
+    final correctionBloc = context.read<CorrectionBloc>();
+
+    showDialog(
+      context: context,
+      builder: (ctx) => BlocProvider.value(
+        value: correctionBloc,
+        child: BlocListener<CorrectionBloc, CorrectionState>(
+          listener: (context, state) {
+            if (state is CorrectionCreateSuccess) {
+              Navigator.of(ctx).pop();
+              AppToast.show(context,
+                  message: 'Đã gửi yêu cầu bổ sung công tăng ca!',
+                  type: ToastType.success);
+              _loadMonth();
+            } else if (state is CorrectionFailure) {
+              AppToast.show(context, message: state.message);
+            }
+          },
+          child: AlertDialog(
+            title: Row(
+              children: [
+                const Expanded(child: Text('Bổ sung công tăng ca')),
+                GestureDetector(
+                  onTap: () => Navigator.pop(ctx),
+                  child: const Icon(Icons.close, size: 22, color: Colors.grey),
+                ),
+              ],
+            ),
+            content: Form(
+              key: formKey,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Thiếu $missing tăng ca ngày ${AppDateUtils.formatDate(ot.date)}',
+                      style: const TextStyle(fontSize: 13, color: AppColors.textSecondary)),
+                  if (ot.actualCheckin != null)
+                    Text('Check-in: ${AppDateUtils.formatTime(ot.actualCheckin!)}',
+                        style: const TextStyle(fontSize: 13)),
+                  if (ot.actualCheckout != null)
+                    Text('Check-out: ${AppDateUtils.formatTime(ot.actualCheckout!)}',
+                        style: const TextStyle(fontSize: 13)),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: descController,
+                    maxLines: 3,
+                    decoration: InputDecoration(
+                      labelText: 'Lý do *',
+                      hintText: 'Ví dụ: Quên $missing tăng ca...',
+                      border: const OutlineInputBorder(),
+                    ),
+                    validator: (v) {
+                      if (v == null || v.trim().isEmpty) return 'Vui lòng nhập lý do';
+                      if (v.trim().length < 10) return 'Lý do phải có ít nhất 10 ký tự';
+                      return null;
+                    },
+                  ),
+                ],
+              ),
+            ),
+            actionsPadding: const EdgeInsets.fromLTRB(24, 0, 24, 16),
+            actions: [
+              BlocBuilder<CorrectionBloc, CorrectionState>(
+                builder: (context, state) {
+                  final isLoading = state is CorrectionLoading;
+                  return SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: isLoading
+                          ? null
+                          : () {
+                              if (!formKey.currentState!.validate()) return;
+                              correctionBloc.add(
+                                    CorrectionCreateOvertimeRequested(
+                                      overtimeRequestId: ot.id,
+                                      description: descController.text.trim(),
+                                    ),
+                                  );
+                            },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.deepPurple,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                      child: isLoading
+                          ? const SizedBox(width: 20, height: 20,
+                              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                          : const Text('Gửi yêu cầu', style: TextStyle(fontWeight: FontWeight.w600)),
+                    ),
+                  );
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildOvertimeInfo(ThemeData theme, OvertimeModel ot, {VoidCallback? onClose}) {
+    final checkinStr = ot.actualCheckin != null
+        ? AppDateUtils.formatTime(ot.actualCheckin!)
+        : '--:--';
+    final checkoutStr = ot.actualCheckout != null
+        ? AppDateUtils.formatTime(ot.actualCheckout!)
+        : '--:--';
+
+    final needsCorrection = ot.isInit;
+    final statusLabel = ot.statusDisplay;
+
+    Color statusColor;
+    switch (ot.status) {
+      case 'approved':
+        statusColor = AppColors.success;
+        break;
+      case 'rejected':
+        statusColor = AppColors.error;
+        break;
+      case 'init':
+        statusColor = Colors.blue;
+        break;
+      default:
+        statusColor = AppColors.warning;
+    }
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.deepPurple.shade50,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.deepPurple.shade200),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.nightlight_round, size: 16, color: Colors.deepPurple),
+              const SizedBox(width: 6),
+              Text('Tăng ca', style: theme.textTheme.bodyMedium?.copyWith(
+                fontWeight: FontWeight.w700, color: Colors.deepPurple)),
+              const Spacer(),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color: statusColor.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(statusLabel, style: TextStyle(
+                  fontSize: 11, fontWeight: FontWeight.w600, color: statusColor)),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Text('Check-in: $checkinStr', style: theme.textTheme.bodySmall),
+              const SizedBox(width: 16),
+              Text('Check-out: $checkoutStr', style: theme.textTheme.bodySmall),
+              if (ot.totalHours > 0) ...[
+                const Spacer(),
+                Text('${ot.totalHours}h', style: theme.textTheme.bodySmall?.copyWith(
+                  fontWeight: FontWeight.bold, color: Colors.deepPurple)),
+              ],
+            ],
+          ),
+          if (needsCorrection) ...[
+            const SizedBox(height: 8),
+            Text(
+              ot.isCheckedIn && !ot.isCheckedOut
+                  ? 'Thiếu check-out — cần đăng ký bổ sung công tăng ca'
+                  : 'Thiếu check-in — cần đăng ký bổ sung công tăng ca',
+              style: TextStyle(fontSize: 11, color: Colors.orange.shade700, fontStyle: FontStyle.italic),
+            ),
+            const SizedBox(height: 8),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: () {
+                  if (onClose != null) onClose();
+                  _openOvertimeCorrectionDialog(ot);
+                },
+                icon: const Icon(Icons.edit_calendar_outlined, size: 16),
+                label: const Text('Bổ sung công tăng ca',
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.deepPurple,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 10),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+              ),
+            ),
+          ],
+        ],
       ),
     );
   }
@@ -236,12 +487,12 @@ class _HistoryScreenState extends State<HistoryScreen> {
       case 'approved':
         statusColor = AppColors.success;
         statusIcon = Icons.check_circle_outline;
-        statusText = 'Đã duyệt bù công';
+        statusText = 'Đã duyệt bổ sung công';
         break;
       case 'rejected':
         statusColor = AppColors.error;
         statusIcon = Icons.cancel_outlined;
-        statusText = 'Từ chối bù công';
+        statusText = 'Từ chối bổ sung công';
         break;
       default: // pending
         statusColor = AppColors.warning;
@@ -635,32 +886,52 @@ class _HistoryScreenState extends State<HistoryScreen> {
 
         final isHoliday = _isHoliday(date);
         final color = _getDayColor(record, isFuture, isWeekend, isHoliday);
+        final hasOvertime = _overtimeByDate.containsKey(key);
 
         cells.add(
           Expanded(
             child: GestureDetector(
               onTap: () => _selectDay(date, record),
-              child: Container(
-                height: 40,
-                width: 40,
-                margin: const EdgeInsets.all(2),
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: isSelected ? color : null,
-                  border: color != null
-                      ? Border.all(color: isToday ? AppColors.primary : color, width: isToday ? 2.5 : 2)
-                      : isToday
-                          ? Border.all(color: AppColors.primary, width: 2.5)
-                          : null,
-                ),
-                child: Center(
-                  child: Text(
-                    '$day',
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      fontWeight: isToday ? FontWeight.w800 : FontWeight.w600,
-                      color: isSelected && color != null ? Colors.white : color ?? AppColors.textPrimary,
+              child: SizedBox(
+                height: 44,
+                width: 44,
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    Container(
+                      height: 40,
+                      width: 40,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: isSelected ? color : null,
+                        border: color != null
+                            ? Border.all(color: isToday ? AppColors.primary : color, width: isToday ? 2.5 : 2)
+                            : isToday
+                                ? Border.all(color: AppColors.primary, width: 2.5)
+                                : null,
+                      ),
+                      child: Center(
+                        child: Text(
+                          '$day',
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            fontWeight: isToday ? FontWeight.w800 : FontWeight.w600,
+                            color: isSelected && color != null ? Colors.white : color ?? AppColors.textPrimary,
+                          ),
+                        ),
+                      ),
                     ),
-                  ),
+                    if (hasOvertime)
+                      Positioned(
+                        bottom: 0,
+                        child: Container(
+                          width: 6, height: 6,
+                          decoration: const BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: Colors.deepPurple,
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
               ),
             ),
@@ -822,6 +1093,61 @@ class _HistoryScreenState extends State<HistoryScreen> {
     if (result == true) {
       _loadMonth();
     }
+  }
+
+  void _showOvertimeOnlySheet(DateTime date, OvertimeModel ot) {
+    final theme = Theme.of(context);
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 40, height: 4,
+              margin: const EdgeInsets.only(bottom: 16),
+              decoration: BoxDecoration(
+                color: Colors.grey[300],
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(AppDateUtils.formatDate(date),
+                  style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: Colors.deepPurple.shade50,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: const Text('OT', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.deepPurple)),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            _buildOvertimeInfo(theme, ot, onClose: () => Navigator.pop(ctx)),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton(
+                onPressed: () => Navigator.pop(ctx),
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+                child: const Text('Đóng'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   void _showLeaveOnlySheet(DateTime date) {

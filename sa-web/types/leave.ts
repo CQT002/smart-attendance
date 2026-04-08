@@ -36,7 +36,7 @@ export interface ProcessLeaveRequest {
 
 export interface PendingApprovalItem {
   id: number;
-  type: "correction" | "leave";
+  type: "correction" | "leave" | "overtime";
   user_id: number;
   user_name: string;
   employee_code: string;
@@ -45,5 +45,23 @@ export interface PendingApprovalItem {
   date: string;
   description: string;
   detail: string;
+  status: string;
   created_at: string;
+  // Audit fields
+  processed_by_name?: string;
+  processed_at?: string;
+  manager_note?: string;
+  // Correction-specific
+  check_in_time?: string;
+  check_out_time?: string;
+  // Leave-specific
+  leave_type?: string;
+  time_from?: string;
+  time_to?: string;
+  // Overtime-specific
+  actual_checkin?: string;
+  actual_checkout?: string;
+  calculated_start?: string;
+  calculated_end?: string;
+  total_hours?: number;
 }

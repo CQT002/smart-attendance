@@ -9,9 +9,11 @@ import (
 
 // CreateCorrectionRequest yêu cầu tạo chấm công bù từ nhân viên
 type CreateCorrectionRequest struct {
-	UserID          uint   `json:"-"`                    // Từ JWT, không trust client
-	AttendanceLogID uint   `json:"attendance_log_id"`    // ID bản ghi chấm công gốc
-	Description     string `json:"description"`          // Lý do xin bù công
+	UserID            uint                    `json:"-"`                      // Từ JWT, không trust client
+	CorrectionType    entity.CorrectionType   `json:"correction_type"`        // "attendance" hoặc "overtime"
+	AttendanceLogID   uint                    `json:"attendance_log_id"`      // ID bản ghi chấm công gốc (dùng cho attendance)
+	OvertimeRequestID uint                    `json:"overtime_request_id"`    // ID OT request gốc (dùng cho overtime)
+	Description       string                  `json:"description"`            // Lý do xin bù công
 }
 
 // ProcessCorrectionRequest yêu cầu duyệt/từ chối từ Manager

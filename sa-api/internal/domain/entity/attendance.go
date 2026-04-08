@@ -1,6 +1,10 @@
 package entity
 
-import "time"
+import (
+	"time"
+
+	"gorm.io/gorm"
+)
 
 // AttendanceStatus trạng thái chấm công
 type AttendanceStatus string
@@ -14,6 +18,8 @@ const (
 	StatusHalfDay        AttendanceStatus = "half_day"         // Nửa ngày (check-in/out chỉ nửa ca)
 	StatusLeave          AttendanceStatus = "leave"            // Nghỉ phép (cả ngày)
 	StatusHalfDayLeave   AttendanceStatus = "half_day_leave"   // Nghỉ phép nửa ngày
+	StatusMissingCheckin  AttendanceStatus = "missing_checkin"  // OT: thiếu check-in
+	StatusMissingCheckout AttendanceStatus = "missing_checkout" // OT: thiếu check-out
 )
 
 // CheckMethod phương thức xác thực vị trí
@@ -94,11 +100,15 @@ type AttendanceLog struct {
 	// idx_attendance_branch_status_date (priority:2) — filter status trong branch
 	Status    AttendanceStatus `gorm:"type:varchar(20);not null;default:'present';index:idx_attendance_branch_status_date,priority:2" json:"status"`
 	WorkHours float64          `gorm:"type:decimal(5,2);default:0"                                                                    json:"work_hours"`
-	Overtime  float64          `gorm:"type:decimal(5,2);default:0"                                                                    json:"overtime"`
 	Note      string           `gorm:"size:500"                                                                                       json:"note"`
 
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	// Link tới overtime_requests nếu ngày đó có tăng ca
+	OvertimeRequestID *uint            `gorm:"index" json:"overtime_request_id"`
+	OvertimeRequest   *OvertimeRequest `gorm:"foreignKey:OvertimeRequestID" json:"overtime_request,omitempty"`
+
+	CreatedAt time.Time  `json:"created_at"`
+	UpdatedAt time.Time  `json:"updated_at"`
+	DeletedAt gorm.DeletedAt `gorm:"index" json:"-"`
 }
 
 func (AttendanceLog) TableName() string { return "attendance_logs" }

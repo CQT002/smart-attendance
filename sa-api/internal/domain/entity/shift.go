@@ -1,6 +1,10 @@
 package entity
 
-import "time"
+import (
+	"time"
+
+	"gorm.io/gorm"
+)
 
 // Shift định nghĩa ca làm việc tại chi nhánh
 //
@@ -25,8 +29,9 @@ type Shift struct {
 	// idx_shift_branch_default_active priority:3
 	IsActive bool `gorm:"default:true;index:idx_shift_branch_default_active,priority:3" json:"is_active"`
 
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	CreatedAt time.Time  `json:"created_at"`
+	UpdatedAt time.Time  `json:"updated_at"`
+	DeletedAt gorm.DeletedAt `gorm:"index" json:"-"`
 }
 
 func (Shift) TableName() string { return "shifts" }

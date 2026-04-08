@@ -1,6 +1,10 @@
 package entity
 
-import "time"
+import (
+	"time"
+
+	"gorm.io/gorm"
+)
 
 // LeaveType loại nghỉ phép
 type LeaveType string
@@ -74,8 +78,9 @@ type LeaveRequest struct {
 
 	ManagerNote string `gorm:"type:text" json:"manager_note"`
 
-	CreatedAt time.Time `gorm:"index:idx_leave_created_at" json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	CreatedAt time.Time  `gorm:"index:idx_leave_created_at" json:"created_at"`
+	UpdatedAt time.Time  `json:"updated_at"`
+	DeletedAt gorm.DeletedAt `gorm:"index" json:"-"`
 }
 
 func (LeaveRequest) TableName() string { return "leave_requests" }

@@ -27,6 +27,13 @@ class ApprovalItemModel {
   final String timeFrom;
   final String timeTo;
 
+  // Overtime-specific
+  final String? actualCheckin;
+  final String? actualCheckout;
+  final String? calculatedStart;
+  final String? calculatedEnd;
+  final double? totalHours;
+
   ApprovalItemModel({
     required this.id,
     required this.type,
@@ -48,6 +55,11 @@ class ApprovalItemModel {
     this.leaveType = '',
     this.timeFrom = '',
     this.timeTo = '',
+    this.actualCheckin,
+    this.actualCheckout,
+    this.calculatedStart,
+    this.calculatedEnd,
+    this.totalHours,
   });
 
   factory ApprovalItemModel.fromJson(Map<String, dynamic> json) {
@@ -76,12 +88,18 @@ class ApprovalItemModel {
       leaveType: json['leave_type'] as String? ?? '',
       timeFrom: json['time_from'] as String? ?? '',
       timeTo: json['time_to'] as String? ?? '',
+      actualCheckin: json['actual_checkin'] as String?,
+      actualCheckout: json['actual_checkout'] as String?,
+      calculatedStart: json['calculated_start'] as String?,
+      calculatedEnd: json['calculated_end'] as String?,
+      totalHours: (json['total_hours'] as num?)?.toDouble(),
     );
   }
 
   bool get isPending => status == 'pending';
   bool get isCorrection => type == 'correction';
   bool get isLeave => type == 'leave';
+  bool get isOvertime => type == 'overtime';
 
   String get statusDisplay {
     switch (status) {
@@ -96,7 +114,12 @@ class ApprovalItemModel {
     }
   }
 
-  String get typeDisplay => isCorrection ? 'Bù công' : 'Nghỉ phép';
+  String get typeDisplay {
+    if (isCorrection) return 'Bổ sung công';
+    if (isLeave) return 'Nghỉ phép';
+    if (isOvertime) return 'Tăng ca';
+    return type;
+  }
 
   String get originalStatusDisplay {
     switch (detail) {
@@ -110,6 +133,12 @@ class ApprovalItemModel {
         return 'Vắng mặt';
       case 'half_day':
         return 'Nửa ngày';
+      case 'overtime':
+        return 'Tăng ca';
+      case 'missing_checkin':
+        return 'Thiếu check-in OT';
+      case 'missing_checkout':
+        return 'Thiếu check-out OT';
       default:
         return detail;
     }

@@ -2,9 +2,15 @@ import '../../data/models/approval_item_model.dart';
 import '../../data/models/correction_model.dart';
 
 abstract class CorrectionRepository {
-  /// Employee: tạo yêu cầu chấm công bù
+  /// Employee: tạo yêu cầu bổ sung công ca chính thức
   Future<CorrectionModel> createCorrection({
     required int attendanceLogId,
+    required String description,
+  });
+
+  /// Employee: tạo yêu cầu bổ sung công tăng ca
+  Future<CorrectionModel> createOvertimeCorrection({
+    required int overtimeRequestId,
     required String description,
   });
 

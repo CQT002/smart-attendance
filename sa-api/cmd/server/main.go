@@ -28,6 +28,7 @@ import (
 	ucBranch "github.com/hdbank/smart-attendance/internal/usecase/branch"
 	ucCorrection "github.com/hdbank/smart-attendance/internal/usecase/correction"
 	ucLeave "github.com/hdbank/smart-attendance/internal/usecase/leave"
+	ucOvertime "github.com/hdbank/smart-attendance/internal/usecase/overtime"
 	ucReport "github.com/hdbank/smart-attendance/internal/usecase/report"
 	ucUser "github.com/hdbank/smart-attendance/internal/usecase/user"
 
@@ -92,6 +93,7 @@ func main() {
 	shiftRepo := repository.NewShiftRepository(db)
 	correctionRepo := repository.NewCorrectionRepository(db)
 	leaveRepo := repository.NewLeaveRepository(db)
+	overtimeRepo := repository.NewOvertimeRepository(db)
 
 	// ── 6. Init Usecases ──
 	userUC := ucUser.NewUserUsecase(userRepo, redisCache, cfg.JWT)
@@ -100,8 +102,9 @@ func main() {
 		attendanceRepo, userRepo, wifiConfigRepo, gpsConfigRepo, shiftRepo, redisCache,
 	)
 	reportUC := ucReport.NewReportUsecase(attendanceRepo, userRepo, branchRepo, redisCache)
-	correctionUC := ucCorrection.NewCorrectionUsecase(correctionRepo, attendanceRepo, userRepo, shiftRepo, db, cfg.Correction)
-	leaveUC := ucLeave.NewLeaveUsecase(leaveRepo, correctionRepo, attendanceRepo, userRepo, shiftRepo, db)
+	correctionUC := ucCorrection.NewCorrectionUsecase(correctionRepo, attendanceRepo, overtimeRepo, userRepo, shiftRepo, db, cfg.Correction)
+	leaveUC := ucLeave.NewLeaveUsecase(leaveRepo, correctionRepo, overtimeRepo, attendanceRepo, userRepo, shiftRepo, db)
+	overtimeUC := ucOvertime.NewOvertimeUsecase(overtimeRepo, userRepo, attendanceRepo, db)
 
 	// ── 7. Init Handlers ──
 	// User app handlers
@@ -109,6 +112,7 @@ func main() {
 	attendanceH := handlerUser.NewAttendanceHandler(attendanceUC)
 	correctionH := handlerUser.NewCorrectionHandler(correctionUC)
 	leaveH := handlerUser.NewLeaveHandler(leaveUC)
+	overtimeH := handlerUser.NewOvertimeHandler(overtimeUC)
 	// Admin portal handlers
 	adminAuthH := handlerAdmin.NewAdminAuthHandler(userUC)
 	userH := handlerAdmin.NewUserHandler(userUC)
@@ -116,6 +120,7 @@ func main() {
 	adminAttendanceH := handlerAdmin.NewAttendanceHandler(attendanceUC)
 	adminCorrectionH := handlerAdmin.NewCorrectionHandler(correctionUC)
 	adminLeaveH := handlerAdmin.NewLeaveHandler(leaveUC)
+	adminOvertimeH := handlerAdmin.NewOvertimeHandler(overtimeUC)
 	reportH := handlerAdmin.NewReportHandler(reportUC)
 	wifiConfigH := handlerAdmin.NewWiFiConfigHandler(wifiConfigRepo)
 
@@ -134,12 +139,14 @@ func main() {
 		AttendanceHandler:      attendanceH,
 		CorrectionHandler:      correctionH,
 		LeaveHandler:           leaveH,
+		OvertimeHandler:        overtimeH,
 		AdminAuthHandler:       adminAuthH,
 		UserHandler:            userH,
 		BranchHandler:          branchH,
 		AdminAttendanceHandler: adminAttendanceH,
 		AdminCorrectionHandler: adminCorrectionH,
 		AdminLeaveHandler:      adminLeaveH,
+		AdminOvertimeHandler:   adminOvertimeH,
 		ReportHandler:          reportH,
 		WiFiConfigHandler:      wifiConfigH,
 		Cache:                  redisCache,

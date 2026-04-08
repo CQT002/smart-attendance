@@ -144,9 +144,8 @@ func (u *attendanceUsecase) CheckIn(ctx context.Context, req usecase.CheckInRequ
 
 		// Tính lại work hours nếu đã có checkout — dùng business hours (trừ nghỉ trưa, cap 8h)
 		if existing.CheckOutTime != nil {
-			wh, ot := calculateBusinessWorkHours(now, *existing.CheckOutTime, shift)
+			wh, _ := calculateBusinessWorkHours(now, *existing.CheckOutTime, shift)
 			existing.WorkHours = wh
-			existing.Overtime = ot
 		}
 
 		if err := u.attendanceRepo.Update(ctx, existing); err != nil {
@@ -290,17 +289,15 @@ func (u *attendanceUsecase) CheckOut(ctx context.Context, req usecase.CheckOutRe
 			if attendLog.ShiftID != nil {
 				shift, err := u.shiftRepo.FindByID(ctx, *attendLog.ShiftID)
 				if err == nil && shift != nil {
-					wh, ot := calculateBusinessWorkHours(*attendLog.CheckInTime, now, shift)
+					wh, _ := calculateBusinessWorkHours(*attendLog.CheckInTime, now, shift)
 					attendLog.WorkHours = wh
-					attendLog.Overtime = ot
 					attendLog.Status = u.calculateCheckOutStatus(attendLog.Status, now, shift, wh)
 				}
 			} else {
 				// Fallback khi không có shift — dùng default 8h shift
 				defaultShift := &entity.Shift{StartTime: "08:00", EndTime: "17:00", WorkHours: 8}
-				wh, ot := calculateBusinessWorkHours(*attendLog.CheckInTime, now, defaultShift)
+				wh, _ := calculateBusinessWorkHours(*attendLog.CheckInTime, now, defaultShift)
 				attendLog.WorkHours = wh
-				attendLog.Overtime = ot
 			}
 		}
 

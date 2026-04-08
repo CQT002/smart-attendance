@@ -9,11 +9,12 @@ import (
 
 // CorrectionFilter bộ lọc yêu cầu chấm công bù
 type CorrectionFilter struct {
-	UserID   *uint
-	BranchID *uint
-	Status   entity.CorrectionStatus
-	Page     int
-	Limit    int
+	UserID         *uint
+	BranchID       *uint
+	Status         entity.CorrectionStatus
+	CorrectionType entity.CorrectionType // "" = tất cả, "attendance", "overtime"
+	Page           int
+	Limit          int
 }
 
 // CorrectionRepository định nghĩa contract cho thao tác dữ liệu chấm công bù
@@ -31,10 +32,14 @@ type CorrectionRepository interface {
 	FindAll(ctx context.Context, filter CorrectionFilter) ([]*entity.AttendanceCorrection, int64, error)
 
 	// CountByUserInMonth đếm số yêu cầu của user trong tháng hiện tại (dựa trên created_at)
-	CountByUserInMonth(ctx context.Context, userID uint, month time.Time) (int64, error)
+	// correctionType rỗng = đếm tất cả, "attendance" hoặc "overtime" = đếm theo loại
+	CountByUserInMonth(ctx context.Context, userID uint, month time.Time, correctionType entity.CorrectionType) (int64, error)
 
 	// FindByAttendanceLogID tìm yêu cầu theo attendance_log_id (unique constraint)
 	FindByAttendanceLogID(ctx context.Context, logID uint) (*entity.AttendanceCorrection, error)
+
+	// FindByOvertimeRequestID tìm yêu cầu theo overtime_request_id (unique constraint)
+	FindByOvertimeRequestID(ctx context.Context, otID uint) (*entity.AttendanceCorrection, error)
 
 	// AutoRejectExpired chuyển toàn bộ PENDING của tháng cũ sang REJECTED
 	// Trả về số bản ghi bị ảnh hưởng

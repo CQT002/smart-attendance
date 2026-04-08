@@ -29,4 +29,5 @@ jwt:
   refresh_expire_days: 7
 
 correction:
-  max_per_month: 4            # Hạn mức bù công tối đa mỗi tháng (tính theo credit)
+  max_per_month: 4            # Hạn mức bù công ca chính thức tối đa mỗi tháng (tính theo credit)
+  overtime_max_per_month: 4   # Hạn mức bù công tăng ca tối đa mỗi tháng

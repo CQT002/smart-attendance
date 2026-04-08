@@ -35,8 +35,8 @@ class AttendanceModel {
   // Calculated
   final String status; // present | late | early_leave | absent | half_day
   final double workHours;
-  final double overtime;
   final String note;
+  final int? overtimeRequestId;
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -67,8 +67,8 @@ class AttendanceModel {
     this.fraudNote = '',
     required this.status,
     this.workHours = 0,
-    this.overtime = 0,
     this.note = '',
+    this.overtimeRequestId,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -101,8 +101,8 @@ class AttendanceModel {
       fraudNote: json['fraud_note'] as String? ?? '',
       status: json['status'] as String? ?? 'absent',
       workHours: (json['work_hours'] as num?)?.toDouble() ?? 0,
-      overtime: (json['overtime'] as num?)?.toDouble() ?? 0,
       note: json['note'] as String? ?? '',
+      overtimeRequestId: json['overtime_request_id'] as int?,
       createdAt: DateTime.parse(json['created_at'] as String? ?? DateTime.now().toIso8601String()).toLocal(),
       updatedAt: DateTime.parse(json['updated_at'] as String? ?? DateTime.now().toIso8601String()).toLocal(),
     );

@@ -27,7 +27,7 @@ export function useBatchApproveCorrections() {
   return useMutation({
     mutationFn: () => correctionService.batchApprove(),
     onSuccess: (data) => {
-      toast.success(`Đã duyệt ${data.approved_count} yêu cầu bù công`);
+      toast.success(`Đã duyệt ${data.approved_count} yêu cầu bổ sung công`);
       qc.invalidateQueries({ queryKey: ["corrections"] });
     },
     onError: () => {
@@ -44,7 +44,7 @@ export function useProcessCorrection() {
       correctionService.process(id, req),
     onSuccess: (data) => {
       const action = data.status === "approved" ? "duyệt" : "từ chối";
-      toast.success(`Đã ${action} yêu cầu bù công`);
+      toast.success(`Đã ${action} yêu cầu bổ sung công`);
       qc.invalidateQueries({ queryKey: ["corrections"] });
     },
     onError: () => {

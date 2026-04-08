@@ -11,6 +11,7 @@ class CorrectionBloc extends Bloc<CorrectionEvent, CorrectionState> {
       : _correctionRepository = correctionRepository,
         super(CorrectionInitial()) {
     on<CorrectionCreateRequested>(_onCreateRequested);
+    on<CorrectionCreateOvertimeRequested>(_onCreateOvertimeRequested);
     on<CorrectionLoadMyList>(_onLoadMyList);
     on<CorrectionLoadAdminList>(_onLoadAdminList);
     on<CorrectionApproveRequested>(_onApproveRequested);
@@ -26,6 +27,22 @@ class CorrectionBloc extends Bloc<CorrectionEvent, CorrectionState> {
     try {
       final correction = await _correctionRepository.createCorrection(
         attendanceLogId: event.attendanceLogId,
+        description: event.description,
+      );
+      emit(CorrectionCreateSuccess(correction));
+    } catch (e) {
+      emit(CorrectionFailure(_extractMessage(e)));
+    }
+  }
+
+  Future<void> _onCreateOvertimeRequested(
+    CorrectionCreateOvertimeRequested event,
+    Emitter<CorrectionState> emit,
+  ) async {
+    emit(CorrectionLoading());
+    try {
+      final correction = await _correctionRepository.createOvertimeCorrection(
+        overtimeRequestId: event.overtimeRequestId,
         description: event.description,
       );
       emit(CorrectionCreateSuccess(correction));
@@ -75,7 +92,7 @@ class CorrectionBloc extends Bloc<CorrectionEvent, CorrectionState> {
         status: 'approved',
         managerNote: event.managerNote,
       );
-      emit(CorrectionProcessSuccess(correction, 'Đã duyệt yêu cầu bù công'));
+      emit(CorrectionProcessSuccess(correction, 'Đã duyệt yêu cầu bổ sung công'));
     } catch (e) {
       emit(CorrectionFailure(_extractMessage(e)));
     }
@@ -92,7 +109,7 @@ class CorrectionBloc extends Bloc<CorrectionEvent, CorrectionState> {
         status: 'rejected',
         managerNote: event.managerNote,
       );
-      emit(CorrectionProcessSuccess(correction, 'Đã từ chối yêu cầu bù công'));
+      emit(CorrectionProcessSuccess(correction, 'Đã từ chối yêu cầu bổ sung công'));
     } catch (e) {
       emit(CorrectionFailure(_extractMessage(e)));
     }

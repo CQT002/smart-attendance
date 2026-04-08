@@ -49,6 +49,13 @@ type PendingApprovalItem struct {
 	LeaveType    string  `json:"leave_type,omitempty"`     // leave only: full_day, half_day_morning, ...
 	TimeFrom     string  `json:"time_from,omitempty"`      // leave only
 	TimeTo       string  `json:"time_to,omitempty"`        // leave only
+
+	// Overtime-specific fields
+	ActualCheckin   *string  `json:"actual_checkin,omitempty"`   // overtime only
+	ActualCheckout  *string  `json:"actual_checkout,omitempty"`  // overtime only
+	CalculatedStart *string  `json:"calculated_start,omitempty"` // overtime only (sau khi duyệt)
+	CalculatedEnd   *string  `json:"calculated_end,omitempty"`   // overtime only (sau khi duyệt)
+	TotalHours      *float64 `json:"total_hours,omitempty"`      // overtime only (sau khi duyệt)
 }
 
 // LeaveUsecase định nghĩa business logic cho nghỉ phép

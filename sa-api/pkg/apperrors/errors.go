@@ -106,6 +106,18 @@ var (
 	ErrLeaveInsufficientBalance = New(http.StatusBadRequest, "LEAVE_INSUFFICIENT_BALANCE", "Số ngày phép không đủ")
 )
 
+// Overtime errors
+var (
+	ErrOvertimeCheckInTooEarly   = New(http.StatusBadRequest, "OT_CHECKIN_TOO_EARLY", "Chỉ được check-in tăng ca sau 17:00")
+	ErrOvertimeAlreadyCheckedIn  = New(http.StatusConflict, "OT_ALREADY_CHECKED_IN", "Bạn đã check-in tăng ca hôm nay")
+	ErrOvertimeNotCheckedIn      = New(http.StatusBadRequest, "OT_NOT_CHECKED_IN", "Bạn chưa check-in tăng ca")
+	ErrOvertimeAlreadyCheckedOut = New(http.StatusConflict, "OT_ALREADY_CHECKED_OUT", "Bạn đã check-out tăng ca hôm nay")
+	ErrOvertimeNotPending        = New(http.StatusBadRequest, "OT_NOT_PENDING", "Yêu cầu tăng ca đã được xử lý, không thể thay đổi")
+	ErrOvertimeSelfApprove       = New(http.StatusForbidden, "OT_SELF_APPROVE", "Manager không được tự duyệt yêu cầu tăng ca của chính mình")
+	ErrOvertimeNotCompleted      = New(http.StatusBadRequest, "OT_NOT_COMPLETED", "Yêu cầu tăng ca chưa hoàn tất (thiếu check-out)")
+	ErrOvertimeAlreadyExists     = New(http.StatusConflict, "OT_ALREADY_EXISTS", "Ngày này đã có yêu cầu tăng ca")
+)
+
 // Validation errors
 var (
 	ErrValidation      = New(http.StatusBadRequest, "VALIDATION_ERROR", "Dữ liệu không hợp lệ")

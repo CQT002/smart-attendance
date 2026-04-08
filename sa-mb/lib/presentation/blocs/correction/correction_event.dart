@@ -21,6 +21,20 @@ class CorrectionCreateRequested extends CorrectionEvent {
   List<Object?> get props => [attendanceLogId, description];
 }
 
+/// Employee: tạo yêu cầu bổ sung công tăng ca
+class CorrectionCreateOvertimeRequested extends CorrectionEvent {
+  final int overtimeRequestId;
+  final String description;
+
+  const CorrectionCreateOvertimeRequested({
+    required this.overtimeRequestId,
+    required this.description,
+  });
+
+  @override
+  List<Object?> get props => [overtimeRequestId, description];
+}
+
 /// Employee: load danh sách yêu cầu của mình
 class CorrectionLoadMyList extends CorrectionEvent {
   final String? status;

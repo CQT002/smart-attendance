@@ -5,17 +5,21 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/utils/date_utils.dart';
 import '../../data/models/attendance_model.dart';
+import '../../data/models/overtime_model.dart';
 import '../../data/models/user_model.dart';
+import '../../domain/repositories/overtime_repository.dart';
 import '../blocs/attendance/attendance_bloc.dart';
 import '../blocs/attendance/attendance_event.dart';
 import '../blocs/attendance/attendance_state.dart';
 import '../blocs/auth/auth_bloc.dart';
 import '../blocs/auth/auth_event.dart';
 import '../blocs/auth/auth_state.dart';
+import '../blocs/overtime/overtime_bloc.dart';
 import '../widgets/app_toast.dart';
 import 'history_screen.dart';
 import 'check_in_screen.dart';
 import 'correction_approval_screen.dart';
+import 'overtime_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -106,6 +110,8 @@ class _HomeTabState extends State<_HomeTab> {
   DateTime _currentTime = DateTime.now();
   late Future<List<AttendanceModel>> _historyFuture;
   AttendanceModel? _lastKnownToday;
+  OvertimeModel? _todayOvertime;
+  Map<String, OvertimeModel> _weekOvertimeByDate = {};
 
   @override
   void initState() {
@@ -113,6 +119,8 @@ class _HomeTabState extends State<_HomeTab> {
     _startTimer();
     _fetchHistory();
     _fetchToday();
+    _fetchTodayOvertime();
+    _fetchWeekOvertime();
   }
 
   void _fetchToday() async {
@@ -122,6 +130,34 @@ class _HomeTabState extends State<_HomeTab> {
       setState(() => _lastKnownToday = today);
     }
   }
+
+  void _fetchTodayOvertime() async {
+    try {
+      final repo = context.read<OvertimeRepository>();
+      final ot = await repo.getMyToday();
+      if (mounted) {
+        setState(() => _todayOvertime = ot);
+      }
+    } catch (_) {}
+  }
+
+  void _fetchWeekOvertime() async {
+    try {
+      final repo = context.read<OvertimeRepository>();
+      final list = await repo.getMyList(limit: 100);
+      if (mounted) {
+        setState(() {
+          _weekOvertimeByDate = {
+            for (final ot in list)
+              '${ot.date.year}-${ot.date.month.toString().padLeft(2, '0')}-${ot.date.day.toString().padLeft(2, '0')}': ot,
+          };
+        });
+      }
+    } catch (_) {}
+  }
+
+  String _dateKeyFromDate(DateTime d) =>
+      '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
 
   void _startTimer() {
     _timer = Timer.periodic(const Duration(minutes: 1), (timer) {
@@ -420,6 +456,34 @@ class _HomeTabState extends State<_HomeTab> {
                         ),
                       ],
                     ),
+                    const SizedBox(height: 16),
+                    // Nút Tăng ca
+                    OutlinedButton.icon(
+                      onPressed: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => BlocProvider.value(
+                              value: context.read<OvertimeBloc>(),
+                              child: const OvertimeScreen(),
+                            ),
+                          ),
+                        );
+                      },
+                      icon: const Icon(Icons.nightlight_round, size: 18),
+                      label: const Text('Chấm công tăng ca'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.deepPurple,
+                        side: const BorderSide(color: Colors.deepPurple),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                        minimumSize: const Size(double.infinity, 0),
+                      ),
+                    ),
+                    // Hiển thị OT hôm nay nếu có
+                    if (_todayOvertime != null) ...[
+                      const SizedBox(height: 12),
+                      _buildTodayOvertimeCard(),
+                    ],
                   ],
                 ),
               ),
@@ -427,6 +491,85 @@ class _HomeTabState extends State<_HomeTab> {
           ),
         );
       },
+      ),
+    );
+  }
+
+  Widget _buildTodayOvertimeCard() {
+    final ot = _todayOvertime!;
+    final checkinStr = ot.actualCheckin != null
+        ? AppDateUtils.formatTime(ot.actualCheckin!)
+        : '--:--';
+    final checkoutStr = ot.actualCheckout != null
+        ? AppDateUtils.formatTime(ot.actualCheckout!)
+        : '--:--';
+
+    Color statusColor;
+    switch (ot.status) {
+      case 'approved':
+        statusColor = AppColors.success;
+        break;
+      case 'rejected':
+        statusColor = AppColors.error;
+        break;
+      case 'init':
+        statusColor = Colors.blue;
+        break;
+      default:
+        statusColor = AppColors.warning;
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.deepPurple.shade50,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.deepPurple.shade200),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.nightlight_round, size: 16, color: Colors.deepPurple),
+              const SizedBox(width: 6),
+              const Text('Tăng ca hôm nay', style: TextStyle(
+                fontWeight: FontWeight.w700, color: Colors.deepPurple, fontSize: 13)),
+              const Spacer(),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color: statusColor.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(ot.statusDisplay, style: TextStyle(
+                  fontSize: 11, fontWeight: FontWeight.w600, color: statusColor)),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Text('In: $checkinStr', style: const TextStyle(fontSize: 13)),
+              const SizedBox(width: 16),
+              Text('Out: $checkoutStr', style: const TextStyle(fontSize: 13)),
+              if (ot.totalHours > 0) ...[
+                const Spacer(),
+                Text('${ot.totalHours}h', style: const TextStyle(
+                  fontWeight: FontWeight.bold, color: Colors.deepPurple, fontSize: 13)),
+              ],
+            ],
+          ),
+          if (ot.isInit) ...[
+            const SizedBox(height: 6),
+            Text(
+              ot.isCheckedIn && !ot.isCheckedOut
+                  ? 'Thiếu check-out — cần bổ sung công tăng ca'
+                  : 'Thiếu check-in — cần bổ sung công tăng ca',
+              style: TextStyle(fontSize: 11, color: Colors.orange.shade700, fontStyle: FontStyle.italic),
+            ),
+          ],
+        ],
       ),
     );
   }
@@ -472,51 +615,61 @@ class _HomeTabState extends State<_HomeTab> {
                 final item = list[index];
                 final inStr = item.checkInTime != null ? AppDateUtils.formatTime(item.checkInTime!) : '--:--';
                 final outStr = item.checkOutTime != null ? AppDateUtils.formatTime(item.checkOutTime!) : '--:--';
-                
-                return Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                final dayOt = _weekOvertimeByDate[_dateKeyFromDate(item.date)];
+
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          '${AppDateUtils.formatDayName(item.date)}, ${AppDateUtils.formatDate(item.date)}',
-                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          'Cả ngày - ${AppDateUtils.formatWorkHours(item.workHours)}',
-                          style: const TextStyle(color: AppColors.textSecondary, fontSize: 12),
-                        ),
-                      ],
-                    ),
                     Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                         Column(
-                           children: [
-                             Container(
-                               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                               decoration: BoxDecoration(color: Colors.orange, borderRadius: BorderRadius.circular(16)),
-                               child: const Text('VÀO', style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              '${AppDateUtils.formatDayName(item.date)}, ${AppDateUtils.formatDate(item.date)}',
+                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              'Cả ngày - ${AppDateUtils.formatWorkHours(item.workHours)}',
+                              style: const TextStyle(color: AppColors.textSecondary, fontSize: 12),
+                            ),
+                          ],
+                        ),
+                        Row(
+                          children: [
+                             Column(
+                               children: [
+                                 Container(
+                                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                                   decoration: BoxDecoration(color: Colors.orange, borderRadius: BorderRadius.circular(16)),
+                                   child: const Text('VÀO', style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
+                                 ),
+                                 const SizedBox(height: 4),
+                                 Text(inStr, style: const TextStyle(color: Colors.orange, fontWeight: FontWeight.bold, fontSize: 16)),
+                               ],
                              ),
-                             const SizedBox(height: 4),
-                             Text(inStr, style: const TextStyle(color: Colors.orange, fontWeight: FontWeight.bold, fontSize: 16)),
-                           ],
-                         ),
-                         const SizedBox(width: 24),
-                         Column(
-                           children: [
-                             Container(
-                               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                               decoration: BoxDecoration(color: AppColors.primary, borderRadius: BorderRadius.circular(16)),
-                               child: const Text('RA', style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
+                             const SizedBox(width: 24),
+                             Column(
+                               children: [
+                                 Container(
+                                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                                   decoration: BoxDecoration(color: AppColors.primary, borderRadius: BorderRadius.circular(16)),
+                                   child: const Text('RA', style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
+                                 ),
+                                 const SizedBox(height: 4),
+                                 Text(outStr, style: const TextStyle(color: AppColors.primary, fontWeight: FontWeight.bold, fontSize: 16)),
+                               ],
                              ),
-                             const SizedBox(height: 4),
-                             Text(outStr, style: const TextStyle(color: AppColors.primary, fontWeight: FontWeight.bold, fontSize: 16)),
-                           ],
-                         ),
+                          ],
+                        ),
                       ],
                     ),
+                    if (dayOt != null) ...[
+                      const SizedBox(height: 8),
+                      _buildWeeklyOvertimeRow(dayOt),
+                    ],
                   ],
                 );
               },
@@ -524,6 +677,54 @@ class _HomeTabState extends State<_HomeTab> {
           },
         ),
       ],
+    );
+  }
+
+  Widget _buildWeeklyOvertimeRow(OvertimeModel ot) {
+    final otIn = ot.actualCheckin != null ? AppDateUtils.formatTime(ot.actualCheckin!) : '--:--';
+    final otOut = ot.actualCheckout != null ? AppDateUtils.formatTime(ot.actualCheckout!) : '--:--';
+
+    Color statusColor;
+    switch (ot.status) {
+      case 'approved':
+        statusColor = AppColors.success;
+        break;
+      case 'rejected':
+        statusColor = AppColors.error;
+        break;
+      case 'init':
+        statusColor = Colors.blue;
+        break;
+      default:
+        statusColor = AppColors.warning;
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.deepPurple.shade50,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.nightlight_round, size: 14, color: Colors.deepPurple),
+          const SizedBox(width: 6),
+          Text('OT $otIn - $otOut', style: const TextStyle(fontSize: 12, color: Colors.deepPurple)),
+          const Spacer(),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+            decoration: BoxDecoration(
+              color: statusColor.withValues(alpha: 0.15),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Text(ot.statusDisplay, style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: statusColor)),
+          ),
+          if (ot.totalHours > 0) ...[
+            const SizedBox(width: 8),
+            Text('${ot.totalHours}h', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.deepPurple)),
+          ],
+        ],
+      ),
     );
   }
 
@@ -598,7 +799,7 @@ class _ProfileTab extends StatelessWidget {
                 // Avatar with gradient ring
                 Container(
                   padding: const EdgeInsets.all(3),
-                  decoration: BoxDecoration(
+                  decoration: const BoxDecoration(
                     shape: BoxShape.circle,
                     gradient: LinearGradient(
                       colors: [AppColors.primary, AppColors.primaryLight],
@@ -663,19 +864,32 @@ class _ProfileTab extends StatelessWidget {
                       showDialog(
                         context: context,
                         builder: (ctx) => AlertDialog(
-                          title: const Text('Đăng xuất'),
+                          title: Row(
+                            children: [
+                              const Expanded(child: Text('Đăng xuất')),
+                              GestureDetector(
+                                onTap: () => Navigator.pop(ctx),
+                                child: const Icon(Icons.close, size: 22, color: Colors.grey),
+                              ),
+                            ],
+                          ),
                           content: const Text('Bạn có chắc muốn đăng xuất?'),
+                          actionsPadding: const EdgeInsets.fromLTRB(24, 0, 24, 16),
                           actions: [
-                            TextButton(
-                              onPressed: () => Navigator.pop(ctx),
-                              child: const Text('Huỷ'),
-                            ),
-                            TextButton(
-                              onPressed: () {
-                                Navigator.pop(ctx);
-                                context.read<AuthBloc>().add(AuthLogoutRequested());
-                              },
-                              child: const Text('Đăng xuất'),
+                            SizedBox(
+                              width: double.infinity,
+                              child: ElevatedButton(
+                                onPressed: () {
+                                  Navigator.pop(ctx);
+                                  context.read<AuthBloc>().add(AuthLogoutRequested());
+                                },
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: AppColors.error,
+                                  padding: const EdgeInsets.symmetric(vertical: 14),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                ),
+                                child: const Text('Đăng xuất', style: TextStyle(fontWeight: FontWeight.w600)),
+                              ),
                             ),
                           ],
                         ),

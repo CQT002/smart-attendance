@@ -1,6 +1,10 @@
 package entity
 
-import "time"
+import (
+	"time"
+
+	"gorm.io/gorm"
+)
 
 // Branch đại diện cho một chi nhánh trong hệ thống
 type Branch struct {
@@ -32,6 +36,8 @@ type Branch struct {
 	Shifts         []Shift         `gorm:"foreignKey:BranchID" json:"-"`
 	AttendanceLogs []AttendanceLog `gorm:"foreignKey:BranchID" json:"-"`
 	DailySummaries []DailySummary  `gorm:"foreignKey:BranchID" json:"-"`
+
+	DeletedAt gorm.DeletedAt `gorm:"index" json:"-"`
 }
 
 func (Branch) TableName() string { return "branches" }

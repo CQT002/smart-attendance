@@ -1,6 +1,10 @@
 package entity
 
-import "time"
+import (
+	"time"
+
+	"gorm.io/gorm"
+)
 
 // WiFiConfig cấu hình WiFi được phép chấm công tại chi nhánh
 //
@@ -20,8 +24,9 @@ type WiFiConfig struct {
 	// idx_wifi_branch_active priority:2
 	IsActive bool `gorm:"default:true;index:idx_wifi_branch_active,priority:2" json:"is_active"`
 
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	CreatedAt time.Time  `json:"created_at"`
+	UpdatedAt time.Time  `json:"updated_at"`
+	DeletedAt gorm.DeletedAt `gorm:"index" json:"-"`
 }
 
 func (WiFiConfig) TableName() string { return "wifi_configs" }

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Header } from "@/components/layout/header";
 import { useCorrections, useProcessCorrection, useBatchApproveCorrections } from "@/hooks/use-corrections";
 import { useLeaves, useProcessLeave, useBatchApproveLeaves } from "@/hooks/use-leaves";
+import { useOvertime, useProcessOvertime, useBatchApproveOvertime } from "@/hooks/use-overtime";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { DataTableSkeleton } from "@/components/shared/data-table-skeleton";
@@ -38,6 +39,7 @@ import {
   AttendanceCorrection,
 } from "@/types";
 import { LeaveRequest, LeaveFilter, LeaveStatus } from "@/types/leave";
+import { OvertimeRequest, OvertimeFilter, OvertimeStatus } from "@/types/overtime";
 import { formatDate, formatDateTime, formatTime } from "@/lib/utils";
 
 type UnifiedStatus = "pending" | "approved" | "rejected";
@@ -51,14 +53,16 @@ const STATUS_OPTIONS = [
 
 const TYPE_OPTIONS = [
   { value: "all", label: "Tất cả loại" },
-  { value: "correction", label: "Bù công" },
+  { value: "correction", label: "Bổ sung công" },
   { value: "leave", label: "Nghỉ phép" },
+  { value: "overtime", label: "Tăng ca" },
 ];
 
 const APPROVAL_STATUS_CONFIG: Record<
   string,
   { label: string; variant: "warning" | "success" | "destructive" | "secondary" }
 > = {
+  init: { label: "Chưa hoàn tất", variant: "secondary" },
   pending: { label: "Chờ duyệt", variant: "warning" },
   approved: { label: "Đã duyệt", variant: "success" },
   rejected: { label: "Từ chối", variant: "destructive" },
@@ -70,6 +74,8 @@ const ORIGINAL_STATUS_LABEL: Record<string, string> = {
   late_early_leave: "Đi trễ - Về sớm",
   absent: "Vắng mặt",
   half_day: "Nửa ngày",
+  missing_checkin: "Thiếu check-in OT",
+  missing_checkout: "Thiếu check-out OT",
 };
 
 const LEAVE_TYPE_LABEL: Record<string, string> = {
@@ -81,7 +87,7 @@ const LEAVE_TYPE_LABEL: Record<string, string> = {
 // Unified row type for the table
 interface UnifiedItem {
   id: number;
-  type: "correction" | "leave";
+  type: "correction" | "leave" | "overtime";
   userName: string;
   employeeCode: string;
   date: string;
@@ -89,14 +95,14 @@ interface UnifiedItem {
   description: string;
   status: string;
   createdAt: string;
-  raw: AttendanceCorrection | LeaveRequest;
+  raw: AttendanceCorrection | LeaveRequest | OvertimeRequest;
 }
 
 export default function CorrectionsPage() {
   const [statusFilter, setStatusFilter] = useState<UnifiedStatus | undefined>(
     "pending"
   );
-  const [typeFilter, setTypeFilter] = useState<"all" | "correction" | "leave">(
+  const [typeFilter, setTypeFilter] = useState<"all" | "correction" | "leave" | "overtime">(
     "all"
   );
   const [page, setPage] = useState(1);
@@ -106,11 +112,12 @@ export default function CorrectionsPage() {
   const [detailCorrection, setDetailCorrection] =
     useState<AttendanceCorrection | null>(null);
   const [detailLeave, setDetailLeave] = useState<LeaveRequest | null>(null);
+  const [detailOvertime, setDetailOvertime] = useState<OvertimeRequest | null>(null);
 
   // Process dialog
   const [processItem, setProcessItem] = useState<{
     id: number;
-    type: "correction" | "leave";
+    type: "correction" | "leave" | "overtime";
     action: "approved" | "rejected";
     userName: string;
     description: string;
@@ -133,36 +140,56 @@ export default function CorrectionsPage() {
     data: corrData,
     isLoading: corrLoading,
   } = useCorrections(
-    typeFilter === "leave" ? { ...correctionFilter, page: 1, limit: 0 } : correctionFilter
+    typeFilter !== "all" && typeFilter !== "correction" ? { ...correctionFilter, page: 1, limit: 0 } : correctionFilter
   );
   const {
     data: leaveData,
     isLoading: leaveLoading,
   } = useLeaves(
-    typeFilter === "correction" ? { ...leaveFilter, page: 1, limit: 0 } : leaveFilter
+    typeFilter === "correction" || typeFilter === "overtime" ? { ...leaveFilter, page: 1, limit: 0 } : leaveFilter
+  );
+
+  const overtimeFilter: OvertimeFilter = {
+    status: statusFilter as OvertimeStatus | undefined,
+    page,
+    limit,
+  };
+  const {
+    data: otData,
+    isLoading: otLoading,
+  } = useOvertime(
+    typeFilter !== "all" && typeFilter !== "overtime" ? { ...overtimeFilter, page: 1, limit: 0 } : overtimeFilter
   );
 
   const processCorrectionMutation = useProcessCorrection();
   const processLeaveMutation = useProcessLeave();
+  const processOvertimeMutation = useProcessOvertime();
   const batchApproveCorrMutation = useBatchApproveCorrections();
   const batchApproveLeavesMutation = useBatchApproveLeaves();
+  const batchApproveOvertimeMutation = useBatchApproveOvertime();
   const [showBatchConfirm, setShowBatchConfirm] = useState(false);
 
-  const isLoading = corrLoading || leaveLoading;
+  const isLoading = corrLoading || leaveLoading || otLoading;
 
   // Build unified list
   const unifiedItems: UnifiedItem[] = [];
 
-  if (typeFilter !== "leave" && corrData?.data) {
+  if ((typeFilter === "all" || typeFilter === "correction") && corrData?.data) {
     for (const c of corrData.data) {
+      const isOtCorrection = c.correction_type === "overtime";
       unifiedItems.push({
         id: c.id,
         type: "correction",
         userName: c.user?.name ?? `#${c.user_id}`,
         employeeCode: c.user?.employee_code ?? "",
-        date: c.attendance_log ? formatDate(c.attendance_log.date) : "—",
+        date: c.attendance_log_id && c.attendance_log?.date
+          ? formatDate(c.attendance_log.date)
+          : c.overtime_request_id && c.overtime_request?.date
+            ? formatDate(c.overtime_request.date)
+            : "—",
         detail:
-          ORIGINAL_STATUS_LABEL[c.original_status] ?? c.original_status,
+          (isOtCorrection ? "[OT] " : "") +
+          (ORIGINAL_STATUS_LABEL[c.original_status] ?? c.original_status),
         description: c.description,
         status: c.status,
         createdAt: c.created_at,
@@ -171,7 +198,7 @@ export default function CorrectionsPage() {
     }
   }
 
-  if (typeFilter !== "correction" && leaveData?.data) {
+  if (typeFilter !== "correction" && typeFilter !== "overtime" && leaveData?.data) {
     for (const l of leaveData.data) {
       unifiedItems.push({
         id: l.id,
@@ -188,14 +215,34 @@ export default function CorrectionsPage() {
     }
   }
 
+  if ((typeFilter === "all" || typeFilter === "overtime") && otData?.data) {
+    for (const ot of otData.data) {
+      const actualIn = ot.actual_checkin ? formatTime(ot.actual_checkin) : "—";
+      const actualOut = ot.actual_checkout ? formatTime(ot.actual_checkout) : "—";
+      unifiedItems.push({
+        id: ot.id,
+        type: "overtime",
+        userName: ot.user?.name ?? `#${ot.user_id}`,
+        employeeCode: ot.user?.employee_code ?? "",
+        date: formatDate(ot.date),
+        detail: `${actualIn} - ${actualOut}`,
+        description: ot.total_hours > 0 ? `${ot.total_hours}h OT` : "Tăng ca",
+        status: ot.status,
+        createdAt: ot.created_at,
+        raw: ot,
+      });
+    }
+  }
+
   // Sort by created_at DESC
   unifiedItems.sort(
     (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
   );
 
   const totalItems =
-    (typeFilter !== "leave" ? corrData?.meta?.total ?? 0 : 0) +
-    (typeFilter !== "correction" ? leaveData?.meta?.total ?? 0 : 0);
+    (typeFilter === "all" || typeFilter === "correction" ? corrData?.meta?.total ?? 0 : 0) +
+    (typeFilter === "all" || typeFilter === "leave" ? leaveData?.meta?.total ?? 0 : 0) +
+    (typeFilter === "all" || typeFilter === "overtime" ? otData?.meta?.total ?? 0 : 0);
 
   const totalPages = Math.ceil(totalItems / limit) || 1;
 
@@ -216,6 +263,11 @@ export default function CorrectionsPage() {
         { id: processItem.id, req },
         { onSuccess }
       );
+    } else if (processItem.type === "overtime") {
+      processOvertimeMutation.mutate(
+        { id: processItem.id, req },
+        { onSuccess }
+      );
     } else {
       processLeaveMutation.mutate(
         { id: processItem.id, req },
@@ -225,11 +277,11 @@ export default function CorrectionsPage() {
   };
 
   const isPending =
-    processCorrectionMutation.isPending || processLeaveMutation.isPending;
+    processCorrectionMutation.isPending || processLeaveMutation.isPending || processOvertimeMutation.isPending;
 
   return (
     <div>
-      <Header title="Duyệt chấm công" />
+      <Header title="Phê duyệt tổng hợp" />
       <div className="p-6 space-y-4">
         {/* Filters */}
         <div className="flex items-center gap-3">
@@ -257,7 +309,7 @@ export default function CorrectionsPage() {
           <Select
             value={typeFilter}
             onValueChange={(v) => {
-              setTypeFilter(v as "all" | "correction" | "leave");
+              setTypeFilter(v as "all" | "correction" | "leave" | "overtime");
               setPage(1);
             }}
           >
@@ -329,12 +381,16 @@ export default function CorrectionsPage() {
                               className={
                                 item.type === "leave"
                                   ? "bg-blue-100 text-blue-700 hover:bg-blue-100"
-                                  : ""
+                                  : item.type === "overtime"
+                                    ? "bg-purple-100 text-purple-700 hover:bg-purple-100"
+                                    : ""
                               }
                             >
                               {item.type === "correction"
-                                ? "Bù công"
-                                : "Nghỉ phép"}
+                                ? "Bổ sung công"
+                                : item.type === "overtime"
+                                  ? "Tăng ca"
+                                  : "Nghỉ phép"}
                             </Badge>
                           </TableCell>
                           <TableCell>
@@ -365,6 +421,10 @@ export default function CorrectionsPage() {
                                   if (item.type === "correction") {
                                     setDetailCorrection(
                                       item.raw as AttendanceCorrection
+                                    );
+                                  } else if (item.type === "overtime") {
+                                    setDetailOvertime(
+                                      item.raw as OvertimeRequest
                                     );
                                   } else {
                                     setDetailLeave(item.raw as LeaveRequest);
@@ -466,7 +526,7 @@ export default function CorrectionsPage() {
       >
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>Chi tiết yêu cầu bù công</DialogTitle>
+            <DialogTitle>Chi tiết yêu cầu bổ sung công</DialogTitle>
           </DialogHeader>
           {detailCorrection && (
             <div className="space-y-4">
@@ -651,6 +711,112 @@ export default function CorrectionsPage() {
         </DialogContent>
       </Dialog>
 
+      {/* Overtime Detail Dialog */}
+      <Dialog
+        open={!!detailOvertime}
+        onOpenChange={() => setDetailOvertime(null)}
+      >
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Chi tiết yêu cầu tăng ca</DialogTitle>
+          </DialogHeader>
+          {detailOvertime && (
+            <div className="space-y-4">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-purple-100">
+                  <UserIcon className="h-5 w-5 text-purple-600" />
+                </div>
+                <div>
+                  <div className="font-medium">
+                    {detailOvertime.user?.name}
+                  </div>
+                  <div className="text-sm text-muted-foreground">
+                    {detailOvertime.user?.employee_code} &middot;{" "}
+                    {detailOvertime.user?.department}
+                  </div>
+                </div>
+              </div>
+              <div className="rounded-md border p-3 space-y-2 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Ngày tăng ca</span>
+                  <span className="font-medium">
+                    {formatDate(detailOvertime.date)}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Check-in thực tế</span>
+                  <span className="font-medium">
+                    {detailOvertime.actual_checkin ? formatTime(detailOvertime.actual_checkin) : "—"}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Check-out thực tế</span>
+                  <span className="font-medium">
+                    {detailOvertime.actual_checkout ? formatTime(detailOvertime.actual_checkout) : "—"}
+                  </span>
+                </div>
+                {detailOvertime.calculated_start && (
+                  <>
+                    <div className="border-t pt-2 mt-2">
+                      <span className="text-xs text-muted-foreground">Giờ hệ thống tính (sau bo tròn)</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Bắt đầu tính</span>
+                      <span className="font-medium">
+                        {formatTime(detailOvertime.calculated_start)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Kết thúc tính</span>
+                      <span className="font-medium">
+                        {detailOvertime.calculated_end ? formatTime(detailOvertime.calculated_end) : "—"}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Tổng giờ OT</span>
+                      <span className="font-medium text-purple-600">
+                        {detailOvertime.total_hours} giờ
+                      </span>
+                    </div>
+                  </>
+                )}
+              </div>
+              <div className="rounded-md bg-orange-50 border border-orange-200 p-3 text-xs text-orange-700">
+                Lưu ý: Giờ tăng ca chỉ bắt đầu tính từ 18:00 đến 22:00 theo quy định
+              </div>
+              {detailOvertime.processed_at && (
+                <div className="rounded-md border p-3 space-y-2 text-sm">
+                  <div className="flex items-center gap-2 text-muted-foreground mb-1">
+                    <Clock className="h-4 w-4" />
+                    <span className="font-medium">Audit Log</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Người duyệt</span>
+                    <span className="font-medium">
+                      {detailOvertime.processed_by?.name ?? "Hệ thống"}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Thời gian</span>
+                    <span className="font-medium">
+                      {formatDateTime(detailOvertime.processed_at)}
+                    </span>
+                  </div>
+                  {detailOvertime.manager_note && (
+                    <div>
+                      <span className="text-muted-foreground">Ghi chú: </span>
+                      <span className="italic">
+                        {detailOvertime.manager_note}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
       {/* Process Dialog (unified) */}
       <Dialog
         open={!!processItem}
@@ -664,7 +830,7 @@ export default function CorrectionsPage() {
             <DialogTitle>
               {processItem?.action === "approved" ? "Duyệt" : "Từ chối"} yêu
               cầu{" "}
-              {processItem?.type === "correction" ? "bù công" : "nghỉ phép"}
+              {processItem?.type === "correction" ? "bổ sung công" : processItem?.type === "overtime" ? "tăng ca" : "nghỉ phép"}
             </DialogTitle>
           </DialogHeader>
           {processItem && (
@@ -746,20 +912,26 @@ export default function CorrectionsPage() {
               className="bg-green-600 hover:bg-green-700"
               disabled={
                 batchApproveCorrMutation.isPending ||
-                batchApproveLeavesMutation.isPending
+                batchApproveLeavesMutation.isPending ||
+                batchApproveOvertimeMutation.isPending
               }
               onClick={() => {
                 batchApproveCorrMutation.mutate(undefined, {
                   onSettled: () => {
                     batchApproveLeavesMutation.mutate(undefined, {
-                      onSettled: () => setShowBatchConfirm(false),
+                      onSettled: () => {
+                        batchApproveOvertimeMutation.mutate(undefined, {
+                          onSettled: () => setShowBatchConfirm(false),
+                        });
+                      },
                     });
                   },
                 });
               }}
             >
               {batchApproveCorrMutation.isPending ||
-              batchApproveLeavesMutation.isPending
+              batchApproveLeavesMutation.isPending ||
+              batchApproveOvertimeMutation.isPending
                 ? "Đang xử lý..."
                 : "Duyệt tất cả"}
             </Button>

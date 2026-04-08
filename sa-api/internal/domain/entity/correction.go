@@ -1,6 +1,18 @@
 package entity
 
-import "time"
+import (
+	"time"
+
+	"gorm.io/gorm"
+)
+
+// CorrectionType loại chấm công bù
+type CorrectionType string
+
+const (
+	CorrectionTypeAttendance CorrectionType = "attendance" // Bù công ca chính thức
+	CorrectionTypeOvertime   CorrectionType = "overtime"   // Bù công tăng ca
+)
 
 // CorrectionStatus trạng thái yêu cầu chấm công bù
 type CorrectionStatus string
@@ -14,11 +26,11 @@ const (
 // AttendanceCorrection yêu cầu chấm công bù
 //
 // Business rules:
-//   - Mỗi nhân viên tối đa 4 lần/tháng (đếm theo SUM(credit_count))
-//   - late hoặc early_leave → credit_count = 1
-//   - late_early_leave (đi trễ + về sớm) → credit_count = 2
-//   - Chỉ được đăng ký bù cho ngày có status: late, early_leave, late_early_leave
+//   - Mỗi nhân viên tối đa 4 lần/tháng (đếm theo SUM(credit_count)) — riêng biệt cho attendance và overtime
+//   - Attendance: late/early_leave = 1 credit, late_early_leave = 2 credits
+//   - Overtime: thiếu check-in hoặc check-out = 1 credit
 //   - Manager chi nhánh là người duyệt, không được tự duyệt cho mình
+//   - Khi duyệt correction loại overtime → đồng thời approve OvertimeRequest
 //   - Auto-reject: PENDING của tháng cũ bị reject lúc 00:05 ngày 1 hàng tháng
 //
 // Index strategy:
@@ -28,6 +40,9 @@ const (
 type AttendanceCorrection struct {
 	ID uint `gorm:"primaryKey;autoIncrement" json:"id"`
 
+	// Loại bù công: attendance (ca chính thức) hoặc overtime (tăng ca)
+	CorrectionType CorrectionType `gorm:"type:varchar(20);not null;default:'attendance'" json:"correction_type"`
+
 	// Nhân viên yêu cầu bù
 	UserID uint `gorm:"not null;index:idx_correction_user_status,priority:1;index:idx_correction_created_at,priority:1" json:"user_id"`
 	User   User `gorm:"foreignKey:UserID" json:"user,omitempty"`
@@ -36,14 +51,19 @@ type AttendanceCorrection struct {
 	BranchID uint   `gorm:"not null;index:idx_correction_branch_status,priority:1" json:"branch_id"`
 	Branch   Branch `gorm:"foreignKey:BranchID" json:"branch,omitempty"`
 
-	// Attendance log gốc cần bù
-	AttendanceLogID uint          `gorm:"not null;uniqueIndex:uniq_correction_log" json:"attendance_log_id"`
+	// Attendance log gốc cần bù (dùng cho correction_type = attendance)
+	AttendanceLogID *uint         `gorm:"uniqueIndex:uniq_correction_log" json:"attendance_log_id"`
 	AttendanceLog   AttendanceLog `gorm:"foreignKey:AttendanceLogID" json:"attendance_log,omitempty"`
 
-	// Trạng thái gốc của ngày cần bù (late, early_leave, late_early_leave)
+	// Overtime request gốc cần bù (dùng cho correction_type = overtime)
+	OvertimeRequestID *uint            `gorm:"index" json:"overtime_request_id"`
+	OvertimeRequest   *OvertimeRequest `gorm:"foreignKey:OvertimeRequestID" json:"overtime_request,omitempty"`
+
+	// Trạng thái gốc của ngày cần bù (late, early_leave, late_early_leave cho attendance;
+	// missing_checkin, missing_checkout cho overtime)
 	OriginalStatus AttendanceStatus `gorm:"type:varchar(20);not null" json:"original_status"`
 
-	// Số lần tính hạn mức: late/early_leave = 1, late_early_leave = 2
+	// Số lần tính hạn mức
 	CreditCount int `gorm:"not null;default:1" json:"credit_count"`
 
 	// Lý do xin bù công từ nhân viên
@@ -64,11 +84,15 @@ type AttendanceCorrection struct {
 	ManagerNote string `gorm:"type:text" json:"manager_note"`
 
 	// Index cho đếm hạn mức theo tháng
-	CreatedAt time.Time `gorm:"index:idx_correction_created_at,priority:2" json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	CreatedAt time.Time  `gorm:"index:idx_correction_created_at,priority:2" json:"created_at"`
+	UpdatedAt time.Time  `json:"updated_at"`
+	DeletedAt gorm.DeletedAt `gorm:"index" json:"-"`
 }
 
 func (AttendanceCorrection) TableName() string { return "attendance_corrections" }
+
+// IsOvertime kiểm tra có phải bù công tăng ca không
+func (c *AttendanceCorrection) IsOvertime() bool { return c.CorrectionType == CorrectionTypeOvertime }
 
 // IsPending kiểm tra yêu cầu còn chờ duyệt không
 func (c *AttendanceCorrection) IsPending() bool { return c.Status == CorrectionStatusPending }

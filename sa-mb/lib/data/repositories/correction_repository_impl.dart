@@ -29,7 +29,33 @@ class CorrectionRepositoryImpl implements CorrectionRepository {
     );
 
     if (!apiResponse.success || apiResponse.data == null) {
-      throw Exception(apiResponse.error?.message ?? 'Tạo yêu cầu bù công thất bại');
+      throw Exception(apiResponse.error?.message ?? 'Tạo yêu cầu bổ sung công thất bại');
+    }
+
+    return apiResponse.data!;
+  }
+
+  @override
+  Future<CorrectionModel> createOvertimeCorrection({
+    required int overtimeRequestId,
+    required String description,
+  }) async {
+    final response = await _apiClient.post(
+      ApiConstants.corrections,
+      data: {
+        'correction_type': 'overtime',
+        'overtime_request_id': overtimeRequestId,
+        'description': description,
+      },
+    );
+
+    final apiResponse = ApiResponse.fromJson(
+      response.data as Map<String, dynamic>,
+      (data) => CorrectionModel.fromJson(data as Map<String, dynamic>),
+    );
+
+    if (!apiResponse.success || apiResponse.data == null) {
+      throw Exception(apiResponse.error?.message ?? 'Tạo yêu cầu bổ sung công tăng ca thất bại');
     }
 
     return apiResponse.data!;

@@ -19,6 +19,7 @@ type RouterDeps struct {
 	AttendanceHandler     *handlerUser.AttendanceHandler
 	CorrectionHandler     *handlerUser.CorrectionHandler
 	LeaveHandler          *handlerUser.LeaveHandler
+	OvertimeHandler       *handlerUser.OvertimeHandler
 	// Admin portal handlers
 	AdminAuthHandler       *handlerAdmin.AdminAuthHandler
 	UserHandler            *handlerAdmin.UserHandler
@@ -26,6 +27,7 @@ type RouterDeps struct {
 	AdminAttendanceHandler *handlerAdmin.AttendanceHandler
 	AdminCorrectionHandler *handlerAdmin.CorrectionHandler
 	AdminLeaveHandler      *handlerAdmin.LeaveHandler
+	AdminOvertimeHandler   *handlerAdmin.OvertimeHandler
 	ReportHandler          *handlerAdmin.ReportHandler
 	WiFiConfigHandler      *handlerAdmin.WiFiConfigHandler
 
@@ -84,6 +86,16 @@ func SetupRouter(e *echo.Echo, deps RouterDeps) {
 	leaves.GET("", deps.LeaveHandler.GetMyList)
 	leaves.GET("/:id", deps.LeaveHandler.GetByID)
 
+	// ── Employee overtime routes (tăng ca) ──
+	overtime := protected.Group("/attendance/overtime")
+	overtime.POST("/check-in", deps.OvertimeHandler.CheckIn,
+		middleware.CheckInRateLimiter(deps.Cache))
+	overtime.POST("/check-out", deps.OvertimeHandler.CheckOut,
+		middleware.CheckInRateLimiter(deps.Cache))
+	overtime.GET("/today", deps.OvertimeHandler.GetMyToday)
+	overtime.GET("", deps.OvertimeHandler.GetMyList)
+	overtime.GET("/:id", deps.OvertimeHandler.GetByID)
+
 	// ── Admin portal routes ──
 	// Admin auth — login không cần JWT, me/change-password cần JWT
 	adminAuth := api.Group("/admin/auth")
@@ -119,7 +131,14 @@ func SetupRouter(e *echo.Echo, deps RouterDeps) {
 	adminLeaves.PUT("/:id/process", deps.AdminLeaveHandler.Process)
 	adminLeaves.POST("/batch-approve", deps.AdminLeaveHandler.BatchApprove)
 
-	// Admin - Unified approvals (tổng hợp duyệt chấm công)
+	// Admin - Overtime management (tăng ca)
+	adminOvertime := adminGroup.Group("/overtime")
+	adminOvertime.GET("", deps.AdminOvertimeHandler.GetList)
+	adminOvertime.GET("/:id", deps.AdminOvertimeHandler.GetByID)
+	adminOvertime.PUT("/:id/process", deps.AdminOvertimeHandler.Process)
+	adminOvertime.POST("/batch-approve", deps.AdminOvertimeHandler.BatchApprove)
+
+	// Admin - Unified approvals (phê duyệt tổng hợp)
 	adminGroup.GET("/approvals", deps.AdminLeaveHandler.GetApprovals)
 	adminGroup.GET("/approvals/pending", deps.AdminLeaveHandler.GetPendingApprovals) // backward compat
 

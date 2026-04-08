@@ -18,6 +18,7 @@ import (
 type leaveUsecase struct {
 	leaveRepo      repository.LeaveRepository
 	correctionRepo repository.CorrectionRepository
+	overtimeRepo   repository.OvertimeRepository
 	attendanceRepo repository.AttendanceRepository
 	userRepo       repository.UserRepository
 	shiftRepo      repository.ShiftRepository
@@ -28,6 +29,7 @@ type leaveUsecase struct {
 func NewLeaveUsecase(
 	leaveRepo repository.LeaveRepository,
 	correctionRepo repository.CorrectionRepository,
+	overtimeRepo repository.OvertimeRepository,
 	attendanceRepo repository.AttendanceRepository,
 	userRepo repository.UserRepository,
 	shiftRepo repository.ShiftRepository,
@@ -36,6 +38,7 @@ func NewLeaveUsecase(
 	return &leaveUsecase{
 		leaveRepo:      leaveRepo,
 		correctionRepo: correctionRepo,
+		overtimeRepo:   overtimeRepo,
 		attendanceRepo: attendanceRepo,
 		userRepo:       userRepo,
 		shiftRepo:      shiftRepo,
@@ -272,7 +275,6 @@ func (u *leaveUsecase) Process(ctx context.Context, req usecase.ProcessLeaveRequ
 					CheckOutTime: &checkOut,
 					Status:       entity.StatusLeave,
 					WorkHours:    shift.WorkHours,
-					Overtime:     0,
 					Note:         "Nghỉ phép - " + leave.Description,
 				}
 				if shift.ID != 0 {
@@ -350,14 +352,14 @@ func (u *leaveUsecase) GetMyList(ctx context.Context, userID uint, status entity
 	return u.leaveRepo.FindAll(ctx, filter)
 }
 
-// GetPendingApprovals lấy danh sách tổng hợp chờ duyệt từ cả corrections và leave requests
+// GetPendingApprovals lấy danh sách tổng hợp chờ duyệt từ corrections, leave requests và overtime
 func (u *leaveUsecase) GetPendingApprovals(ctx context.Context, branchID *uint, page, limit int) ([]usecase.PendingApprovalItem, int64, error) {
 	// Lấy pending corrections
 	corrFilter := repository.CorrectionFilter{
 		BranchID: branchID,
 		Status:   entity.CorrectionStatusPending,
 		Page:     1,
-		Limit:    1000, // Lấy tất cả pending để merge
+		Limit:    1000,
 	}
 	corrections, corrTotal, err := u.correctionRepo.FindAll(ctx, corrFilter)
 	if err != nil {
@@ -376,16 +378,29 @@ func (u *leaveUsecase) GetPendingApprovals(ctx context.Context, branchID *uint, 
 		return nil, 0, err
 	}
 
-	total := corrTotal + leaveTotal
+	// Lấy pending overtimes
+	otFilter := repository.OvertimeFilter{
+		BranchID: branchID,
+		Status:   entity.OvertimeStatusPending,
+		Page:     1,
+		Limit:    1000,
+	}
+	overtimes, otTotal, err := u.overtimeRepo.FindAll(ctx, otFilter)
+	if err != nil {
+		return nil, 0, err
+	}
 
-	// Merge và sort theo created_at DESC
-	items := make([]usecase.PendingApprovalItem, 0, len(corrections)+len(leaves))
+	total := corrTotal + leaveTotal + otTotal
+
+	items := make([]usecase.PendingApprovalItem, 0, len(corrections)+len(leaves)+len(overtimes))
 
 	for _, c := range corrections {
 		detail := string(c.OriginalStatus)
 		date := ""
 		if c.AttendanceLog.ID != 0 {
 			date = c.AttendanceLog.Date.Format("2006-01-02")
+		} else if c.OvertimeRequest != nil && c.OvertimeRequest.ID != 0 {
+			date = c.OvertimeRequest.Date.Format("2006-01-02")
 		}
 		items = append(items, usecase.PendingApprovalItem{
 			ID:           c.ID,
@@ -418,6 +433,8 @@ func (u *leaveUsecase) GetPendingApprovals(ctx context.Context, branchID *uint, 
 		})
 	}
 
+	items = appendOvertimeItems(items, overtimes)
+
 	// Sort by created_at DESC
 	sort.Slice(items, func(i, j int) bool {
 		return items[i].CreatedAt > items[j].CreatedAt
@@ -436,15 +453,20 @@ func (u *leaveUsecase) GetPendingApprovals(ctx context.Context, branchID *uint, 
 	return items[start:end], total, nil
 }
 
-// GetApprovals lấy danh sách tổng hợp duyệt chấm công (correction + leave) — hỗ trợ lọc theo status
+// GetApprovals lấy danh sách tổng hợp duyệt chấm công (correction + leave + overtime) — hỗ trợ lọc theo status
 func (u *leaveUsecase) GetApprovals(ctx context.Context, branchID *uint, status string, page, limit int) ([]usecase.PendingApprovalItem, int64, error) {
 	// Build filters
 	corrFilter := repository.CorrectionFilter{
 		BranchID: branchID,
 		Page:     1,
-		Limit:    1000, // Lấy tất cả để merge
+		Limit:    1000,
 	}
 	leaveFilter := repository.LeaveFilter{
+		BranchID: branchID,
+		Page:     1,
+		Limit:    1000,
+	}
+	otFilter := repository.OvertimeFilter{
 		BranchID: branchID,
 		Page:     1,
 		Limit:    1000,
@@ -452,6 +474,7 @@ func (u *leaveUsecase) GetApprovals(ctx context.Context, branchID *uint, status 
 	if status != "" {
 		corrFilter.Status = entity.CorrectionStatus(status)
 		leaveFilter.Status = entity.LeaveStatus(status)
+		otFilter.Status = entity.OvertimeStatus(status)
 	}
 
 	corrections, corrTotal, err := u.correctionRepo.FindAll(ctx, corrFilter)
@@ -464,9 +487,14 @@ func (u *leaveUsecase) GetApprovals(ctx context.Context, branchID *uint, status 
 		return nil, 0, err
 	}
 
-	total := corrTotal + leaveTotal
+	overtimes, otTotal, err := u.overtimeRepo.FindAll(ctx, otFilter)
+	if err != nil {
+		return nil, 0, err
+	}
 
-	items := make([]usecase.PendingApprovalItem, 0, len(corrections)+len(leaves))
+	total := corrTotal + leaveTotal + otTotal
+
+	items := make([]usecase.PendingApprovalItem, 0, len(corrections)+len(leaves)+len(overtimes))
 
 	for _, c := range corrections {
 		detail := string(c.OriginalStatus)
@@ -480,6 +508,17 @@ func (u *leaveUsecase) GetApprovals(ctx context.Context, branchID *uint, status 
 			}
 			if c.AttendanceLog.CheckOutTime != nil {
 				s := c.AttendanceLog.CheckOutTime.In(utils.HCM).Format("15:04")
+				checkOut = &s
+			}
+		} else if c.OvertimeRequest != nil && c.OvertimeRequest.ID != 0 {
+			// Overtime correction — lấy date và times từ OvertimeRequest
+			date = c.OvertimeRequest.Date.Format("2006-01-02")
+			if c.OvertimeRequest.ActualCheckin != nil {
+				s := c.OvertimeRequest.ActualCheckin.In(utils.HCM).Format("15:04")
+				checkIn = &s
+			}
+			if c.OvertimeRequest.ActualCheckout != nil {
+				s := c.OvertimeRequest.ActualCheckout.In(utils.HCM).Format("15:04")
 				checkOut = &s
 			}
 		}
@@ -539,6 +578,8 @@ func (u *leaveUsecase) GetApprovals(ctx context.Context, branchID *uint, status 
 		item.ManagerNote = l.ManagerNote
 		items = append(items, item)
 	}
+
+	items = appendOvertimeItems(items, overtimes)
 
 	// Sort by created_at DESC
 	sort.Slice(items, func(i, j int) bool {
@@ -648,4 +689,54 @@ func parseTime(t string) (int, int) {
 	hour, _ := strconv.Atoi(t[:2])
 	min, _ := strconv.Atoi(t[3:])
 	return hour, min
+}
+
+// appendOvertimeItems chuyển đổi danh sách OvertimeRequest thành PendingApprovalItem và append vào items
+func appendOvertimeItems(items []usecase.PendingApprovalItem, overtimes []*entity.OvertimeRequest) []usecase.PendingApprovalItem {
+	for _, ot := range overtimes {
+		item := usecase.PendingApprovalItem{
+			ID:           ot.ID,
+			Type:         "overtime",
+			UserID:       ot.UserID,
+			UserName:     ot.User.Name,
+			EmployeeCode: ot.User.EmployeeCode,
+			Department:   ot.User.Department,
+			BranchID:     ot.BranchID,
+			Date:         ot.Date.Format("2006-01-02"),
+			Description:  "Tăng ca",
+			Detail:       "overtime",
+			Status:       string(ot.Status),
+			CreatedAt:    ot.CreatedAt.Format(time.RFC3339),
+		}
+		if ot.ActualCheckin != nil {
+			s := ot.ActualCheckin.In(utils.HCM).Format("15:04")
+			item.ActualCheckin = &s
+		}
+		if ot.ActualCheckout != nil {
+			s := ot.ActualCheckout.In(utils.HCM).Format("15:04")
+			item.ActualCheckout = &s
+		}
+		if ot.CalculatedStart != nil {
+			s := ot.CalculatedStart.In(utils.HCM).Format("15:04")
+			item.CalculatedStart = &s
+		}
+		if ot.CalculatedEnd != nil {
+			s := ot.CalculatedEnd.In(utils.HCM).Format("15:04")
+			item.CalculatedEnd = &s
+		}
+		if ot.TotalHours > 0 {
+			h := ot.TotalHours
+			item.TotalHours = &h
+		}
+		if ot.ProcessedBy != nil {
+			item.ProcessedByName = ot.ProcessedBy.Name
+		}
+		if ot.ProcessedAt != nil {
+			s := ot.ProcessedAt.Format(time.RFC3339)
+			item.ProcessedAt = &s
+		}
+		item.ManagerNote = ot.ManagerNote
+		items = append(items, item)
+	}
+	return items
 }

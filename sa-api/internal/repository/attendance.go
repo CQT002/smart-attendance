@@ -138,10 +138,14 @@ func (r *attendanceRepository) GetSummary(ctx context.Context, userID uint, from
 			COUNT(CASE WHEN status = 'half_day' THEN 1 END) as half_day_count,
 			COUNT(CASE WHEN status = 'absent' THEN 1 END) as absent_count,
 			COALESCE(SUM(work_hours), 0) as total_work_hours,
-			COALESCE(SUM(overtime), 0) as total_overtime
+			COALESCE((SELECT SUM(ot.total_hours) FROM overtime_requests ot
+				WHERE ot.user_id = attendance_logs.user_id
+				AND ot.date BETWEEN ? AND ?
+				AND ot.status = 'approved'
+				AND ot.deleted_at IS NULL), 0) as total_overtime
 		FROM attendance_logs
-		WHERE user_id = ? AND date BETWEEN ? AND ?
-	`, userID, from.Format("2006-01-02"), to.Format("2006-01-02")).Scan(&result).Error
+		WHERE user_id = ? AND date BETWEEN ? AND ? AND deleted_at IS NULL
+	`, from.Format("2006-01-02"), to.Format("2006-01-02"), userID, from.Format("2006-01-02"), to.Format("2006-01-02")).Scan(&result).Error
 
 	if err != nil {
 		return nil, apperrors.Wrap(err, 500, "DB_ERROR", "Lỗi tổng hợp chấm công")
@@ -188,7 +192,9 @@ func (r *attendanceRepository) GetBranchSummary(ctx context.Context, branchID ui
 			COUNT(CASE WHEN a.status = 'half_day' THEN 1 END) as half_day_count,
 			COUNT(CASE WHEN a.status = 'absent' THEN 1 END) as absent_count,
 			COALESCE(SUM(a.work_hours), 0) as total_work_hours,
-			COALESCE(SUM(a.overtime), 0) as total_overtime,
+			COALESCE((SELECT SUM(ot.total_hours) FROM overtime_requests ot
+				WHERE ot.user_id = u.id AND ot.date BETWEEN ? AND ?
+				AND ot.status = 'approved' AND ot.deleted_at IS NULL), 0) as total_overtime,
 			CASE WHEN COUNT(a.id) > 0
 				THEN ROUND(
 					(COUNT(CASE WHEN a.status IN ('present','late','early_leave','late_early_leave','half_day') THEN 1 END)::numeric / COUNT(a.id)) * 100, 2
@@ -204,11 +210,11 @@ func (r *attendanceRepository) GetBranchSummary(ctx context.Context, branchID ui
 			END as on_time_rate
 		FROM users u
 		LEFT JOIN attendance_logs a ON a.user_id = u.id
-			AND a.date BETWEEN ? AND ?
-		WHERE u.branch_id = ? AND u.is_active = true AND u.role = 'employee'
+			AND a.date BETWEEN ? AND ? AND a.deleted_at IS NULL
+		WHERE u.branch_id = ? AND u.is_active = true AND u.role = 'employee' AND u.deleted_at IS NULL
 		GROUP BY u.id, u.name, u.employee_code, u.department
 		ORDER BY u.name
-	`, from.Format("2006-01-02"), to.Format("2006-01-02"), branchID).
+	`, from.Format("2006-01-02"), to.Format("2006-01-02"), from.Format("2006-01-02"), to.Format("2006-01-02"), branchID).
 		Scan(&results).Error
 
 	if err != nil {
@@ -263,7 +269,7 @@ func (r *attendanceRepository) GetTodayStatsByBranch(ctx context.Context, branch
 
 	// ── Count tổng số chi nhánh thoả filter (để phân trang) ──
 	countSQL := fmt.Sprintf(
-		`SELECT COUNT(DISTINCT b.id) FROM branches b WHERE b.is_active = true %s`,
+		`SELECT COUNT(DISTINCT b.id) FROM branches b WHERE b.is_active = true AND b.deleted_at IS NULL %s`,
 		branchFilter,
 	)
 	var total int64
@@ -286,8 +292,8 @@ func (r *attendanceRepository) GetTodayStatsByBranch(ctx context.Context, branch
 				b.code      AS branch_code,
 				COUNT(u.id) AS total_employees
 			FROM branches b
-			JOIN users u ON u.branch_id = b.id AND u.is_active = true AND u.role = 'employee'
-			WHERE b.is_active = true %s
+			JOIN users u ON u.branch_id = b.id AND u.is_active = true AND u.role = 'employee' AND u.deleted_at IS NULL
+			WHERE b.is_active = true AND b.deleted_at IS NULL %s
 			GROUP BY b.id, b.name, b.code
 		),
 		today_attendance AS (
@@ -299,7 +305,7 @@ func (r *attendanceRepository) GetTodayStatsByBranch(ctx context.Context, branch
 				COUNT(CASE WHEN a.status = 'half_day'    THEN 1 END) AS half_day_count,
 				COUNT(CASE WHEN a.is_fake_gps = true OR a.is_vpn = true THEN 1 END) AS suspicious_count
 			FROM attendance_logs a
-			WHERE a.date = CURRENT_DATE
+			WHERE a.date = CURRENT_DATE AND a.deleted_at IS NULL
 			GROUP BY a.branch_id
 		)
 		SELECT
@@ -380,9 +386,9 @@ func (r *attendanceRepository) GetTodayEmployeeDetails(ctx context.Context, filt
 				COALESCE(a.is_vpn, false)                                    AS is_vpn,
 				COALESCE(a.fraud_note, '')                                   AS fraud_note
 			FROM users u
-			JOIN branches b ON b.id = u.branch_id AND b.is_active = true
-			LEFT JOIN attendance_logs a ON a.user_id = u.id AND a.date = CURRENT_DATE
-			WHERE u.is_active = true AND u.role = 'employee' %s
+			JOIN branches b ON b.id = u.branch_id AND b.is_active = true AND b.deleted_at IS NULL
+			LEFT JOIN attendance_logs a ON a.user_id = u.id AND a.date = CURRENT_DATE AND a.deleted_at IS NULL
+			WHERE u.is_active = true AND u.role = 'employee' AND u.deleted_at IS NULL %s
 		)
 	`, branchClause)
 
