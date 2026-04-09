@@ -36,7 +36,8 @@ func NewUserUsecase(userRepo repository.UserRepository, cache cache.Cache, jwtCf
 func (u *userUsecase) Login(ctx context.Context, req usecase.LoginRequest) (*usecase.LoginResponse, error) {
 	user, err := u.userRepo.FindByEmail(ctx, req.Email)
 	if err != nil {
-		// Không tiết lộ email có tồn tại không
+		// Không tiết lộ email có tồn tại không — nhưng vẫn log để debug
+		slog.Warn("login failed - user not found or db error", "email", req.Email, "error", err)
 		return nil, apperrors.ErrInvalidCredential
 	}
 
@@ -103,6 +104,7 @@ func (u *userUsecase) Create(ctx context.Context, req usecase.CreateUserRequest)
 	}
 
 	if err := u.userRepo.Create(ctx, user); err != nil {
+		slog.Error("failed to create user", "email", user.Email, "error", err)
 		return nil, err
 	}
 
@@ -114,6 +116,7 @@ func (u *userUsecase) Create(ctx context.Context, req usecase.CreateUserRequest)
 func (u *userUsecase) Update(ctx context.Context, id uint, req usecase.UpdateUserRequest) (*entity.User, error) {
 	user, err := u.userRepo.FindByID(ctx, id)
 	if err != nil {
+		slog.Error("failed to find user for update", "user_id", id, "error", err)
 		return nil, err
 	}
 
@@ -124,6 +127,7 @@ func (u *userUsecase) Update(ctx context.Context, id uint, req usecase.UpdateUse
 	user.AvatarURL = req.AvatarURL
 
 	if err := u.userRepo.Update(ctx, user); err != nil {
+		slog.Error("failed to update user", "user_id", id, "error", err)
 		return nil, err
 	}
 
@@ -136,6 +140,7 @@ func (u *userUsecase) Update(ctx context.Context, id uint, req usecase.UpdateUse
 // Delete vô hiệu hóa người dùng (soft delete)
 func (u *userUsecase) Delete(ctx context.Context, id uint) error {
 	if err := u.userRepo.Delete(ctx, id); err != nil {
+		slog.Error("failed to delete user", "user_id", id, "error", err)
 		return err
 	}
 	// Xóa cache và session của user này
@@ -155,6 +160,7 @@ func (u *userUsecase) GetByID(ctx context.Context, id uint) (*entity.User, error
 
 	user, err := u.userRepo.FindByID(ctx, id)
 	if err != nil {
+		slog.Error("failed to find user", "user_id", id, "error", err)
 		return nil, err
 	}
 
@@ -171,6 +177,7 @@ func (u *userUsecase) GetList(ctx context.Context, filter repository.UserFilter)
 func (u *userUsecase) ChangePassword(ctx context.Context, userID uint, req usecase.ChangePasswordRequest) error {
 	user, err := u.userRepo.FindByID(ctx, userID)
 	if err != nil {
+		slog.Error("failed to find user for password change", "user_id", userID, "error", err)
 		return err
 	}
 
@@ -186,13 +193,18 @@ func (u *userUsecase) ChangePassword(ctx context.Context, userID uint, req useca
 	}
 
 	user.Password = string(hashedPass)
-	return u.userRepo.Update(ctx, user)
+	if err := u.userRepo.Update(ctx, user); err != nil {
+		slog.Error("failed to update password", "user_id", userID, "error", err)
+		return err
+	}
+	return nil
 }
 
 // ResetPassword đặt lại mật khẩu (admin/manager)
 func (u *userUsecase) ResetPassword(ctx context.Context, userID uint, newPassword string) error {
 	user, err := u.userRepo.FindByID(ctx, userID)
 	if err != nil {
+		slog.Error("failed to find user for password reset", "user_id", userID, "error", err)
 		return err
 	}
 
@@ -204,6 +216,7 @@ func (u *userUsecase) ResetPassword(ctx context.Context, userID uint, newPasswor
 
 	user.Password = string(hashedPass)
 	if err := u.userRepo.Update(ctx, user); err != nil {
+		slog.Error("failed to update reset password", "user_id", userID, "error", err)
 		return err
 	}
 

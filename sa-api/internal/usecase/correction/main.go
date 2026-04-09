@@ -87,6 +87,7 @@ func (u *correctionUsecase) Create(ctx context.Context, req usecase.CreateCorrec
 func (u *correctionUsecase) createAttendanceCorrection(ctx context.Context, req usecase.CreateCorrectionRequest, logger *slog.Logger) (*entity.AttendanceCorrection, error) {
 	attendLog, err := u.attendanceRepo.FindByID(ctx, req.AttendanceLogID)
 	if err != nil {
+		slog.Error("failed to find attendance log for correction", "attendance_log_id", req.AttendanceLogID, "error", err)
 		return nil, err
 	}
 	if attendLog.UserID != req.UserID {
@@ -100,6 +101,7 @@ func (u *correctionUsecase) createAttendanceCorrection(ctx context.Context, req 
 
 	existing, err := u.correctionRepo.FindByAttendanceLogID(ctx, req.AttendanceLogID)
 	if err != nil {
+		slog.Error("failed to check existing correction", "attendance_log_id", req.AttendanceLogID, "error", err)
 		return nil, err
 	}
 	if existing != nil {
@@ -110,6 +112,7 @@ func (u *correctionUsecase) createAttendanceCorrection(ctx context.Context, req 
 	now := utils.Now()
 	usedCredits, err := u.correctionRepo.CountByUserInMonth(ctx, req.UserID, now, entity.CorrectionTypeAttendance)
 	if err != nil {
+		slog.Error("failed to count correction credits", "user_id", req.UserID, "error", err)
 		return nil, err
 	}
 	if usedCredits+creditNeeded > u.maxCreditPerMonth {
@@ -130,6 +133,7 @@ func (u *correctionUsecase) createAttendanceCorrection(ctx context.Context, req 
 	}
 
 	if err := u.correctionRepo.Create(ctx, correction); err != nil {
+		slog.Error("failed to create correction", "user_id", req.UserID, "error", err)
 		return nil, err
 	}
 
@@ -150,6 +154,7 @@ func (u *correctionUsecase) createOvertimeCorrection(ctx context.Context, req us
 	// Tìm OvertimeRequest gốc
 	otReq, err := u.overtimeRepo.FindByID(ctx, req.OvertimeRequestID)
 	if err != nil {
+		slog.Error("failed to find overtime request for correction", "overtime_request_id", req.OvertimeRequestID, "error", err)
 		return nil, err
 	}
 	if otReq.UserID != req.UserID {
@@ -179,6 +184,7 @@ func (u *correctionUsecase) createOvertimeCorrection(ctx context.Context, req us
 	// Kiểm tra chưa có correction trùng
 	existing, err := u.correctionRepo.FindByOvertimeRequestID(ctx, req.OvertimeRequestID)
 	if err != nil {
+		slog.Error("failed to check existing overtime correction", "overtime_request_id", req.OvertimeRequestID, "error", err)
 		return nil, err
 	}
 	if existing != nil {
@@ -189,6 +195,7 @@ func (u *correctionUsecase) createOvertimeCorrection(ctx context.Context, req us
 	now := utils.Now()
 	usedCredits, err := u.correctionRepo.CountByUserInMonth(ctx, req.UserID, now, entity.CorrectionTypeOvertime)
 	if err != nil {
+		slog.Error("failed to count overtime correction credits", "user_id", req.UserID, "error", err)
 		return nil, err
 	}
 	if usedCredits+1 > u.overtimeMaxCreditPerMonth {
@@ -277,6 +284,7 @@ func (u *correctionUsecase) Process(ctx context.Context, req usecase.ProcessCorr
 
 	correction, err := u.correctionRepo.FindByID(ctx, req.CorrectionID)
 	if err != nil {
+		slog.Error("failed to find correction for processing", "correction_id", req.CorrectionID, "error", err)
 		return nil, err
 	}
 	if !correction.IsPending() {
@@ -296,6 +304,7 @@ func (u *correctionUsecase) Process(ctx context.Context, req usecase.ProcessCorr
 		correction.ManagerNote = req.ManagerNote
 
 		if err := u.correctionRepo.Update(ctx, correction); err != nil {
+			slog.Error("failed to update correction rejection", "correction_id", correction.ID, "error", err)
 			return nil, err
 		}
 		logger.Info("correction rejected", "correction_type", correction.CorrectionType)
@@ -330,6 +339,7 @@ func (u *correctionUsecase) processAttendanceCorrection(
 
 	attendLog, err := u.attendanceRepo.FindByID(ctx, *correction.AttendanceLogID)
 	if err != nil {
+		slog.Error("failed to find attendance log for correction approval", "attendance_log_id", *correction.AttendanceLogID, "error", err)
 		return err
 	}
 
@@ -419,6 +429,7 @@ func (u *correctionUsecase) processOvertimeCorrection(
 	// Reload OT (đã có đủ actual_checkin + actual_checkout từ lúc tạo correction)
 	otReq, err := u.overtimeRepo.FindByID(ctx, *correction.OvertimeRequestID)
 	if err != nil {
+		slog.Error("failed to find overtime request for correction approval", "overtime_request_id", *correction.OvertimeRequestID, "error", err)
 		return err
 	}
 
@@ -535,6 +546,7 @@ func (u *correctionUsecase) BatchApprove(ctx context.Context, processedByID uint
 	}
 	corrections, _, err := u.correctionRepo.FindAll(ctx, filter)
 	if err != nil {
+		slog.Error("failed to find pending corrections for batch approve", "error", err)
 		return 0, err
 	}
 

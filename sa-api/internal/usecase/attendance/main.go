@@ -84,6 +84,7 @@ func (u *attendanceUsecase) CheckIn(ctx context.Context, req usecase.CheckInRequ
 	// Lý do: nếu dùng req.BranchID, nhân viên có thể khai branch khác để qua geofencing
 	user, err := u.userRepo.FindByID(ctx, req.UserID)
 	if err != nil {
+		slog.Error("failed to find user for check-in", "user_id", req.UserID, "error", err)
 		return nil, err
 	}
 	if user.BranchID == nil {
@@ -98,6 +99,7 @@ func (u *attendanceUsecase) CheckIn(ctx context.Context, req usecase.CheckInRequ
 	today := utils.Now()
 	existing, err := u.attendanceRepo.FindByUserAndDate(ctx, req.UserID, today)
 	if err != nil {
+		slog.Error("failed to find today attendance for check-in", "user_id", req.UserID, "error", err)
 		return nil, err
 	}
 
@@ -121,6 +123,7 @@ func (u *attendanceUsecase) CheckIn(ctx context.Context, req usecase.CheckInRequ
 	// === Bước 5: Lấy ca mặc định → tính trạng thái ===
 	shift, err := u.shiftRepo.FindDefault(ctx, branchID)
 	if err != nil {
+		slog.Error("failed to find default shift for check-in", "branch_id", branchID, "error", err)
 		return nil, err
 	}
 	if shift == nil {
@@ -257,6 +260,7 @@ func (u *attendanceUsecase) CheckOut(ctx context.Context, req usecase.CheckOutRe
 	// === Bước 2: Lấy branchID từ profile user ===
 	user, err := u.userRepo.FindByID(ctx, req.UserID)
 	if err != nil {
+		slog.Error("failed to find user for check-out", "user_id", req.UserID, "error", err)
 		return nil, err
 	}
 	if user.BranchID == nil {
@@ -291,6 +295,7 @@ func (u *attendanceUsecase) CheckOut(ctx context.Context, req usecase.CheckOutRe
 	today := utils.Now()
 	attendLog, err := u.attendanceRepo.FindByUserAndDate(ctx, req.UserID, today)
 	if err != nil {
+		slog.Error("failed to find today attendance for check-out", "user_id", req.UserID, "error", err)
 		return nil, err
 	}
 
@@ -387,6 +392,7 @@ func (u *attendanceUsecase) GetMyToday(ctx context.Context, userID uint) (*entit
 	// Cache miss — query DB và populate cache
 	log, err := u.attendanceRepo.FindByUserAndDate(ctx, userID, utils.Now())
 	if err != nil {
+		slog.Error("failed to find today attendance", "user_id", userID, "error", err)
 		return nil, err
 	}
 	if log != nil {
@@ -397,7 +403,12 @@ func (u *attendanceUsecase) GetMyToday(ctx context.Context, userID uint) (*entit
 }
 
 func (u *attendanceUsecase) GetSummary(ctx context.Context, userID uint, from, to time.Time) (*repository.AttendanceSummary, error) {
-	return u.attendanceRepo.GetSummary(ctx, userID, from, to)
+	summary, err := u.attendanceRepo.GetSummary(ctx, userID, from, to)
+	if err != nil {
+		slog.Error("failed to get attendance summary", "user_id", userID, "error", err)
+		return nil, err
+	}
+	return summary, nil
 }
 
 // ===================== Private helpers =====================
@@ -470,6 +481,7 @@ func (u *attendanceUsecase) validateLocation(
 	if ssid != "" || bssid != "" {
 		valid, err := u.wifiConfigRepo.ValidateWiFi(ctx, branchID, ssid, bssid)
 		if err != nil {
+			slog.Error("failed to validate WiFi", "branch_id", branchID, "ssid", ssid, "error", err)
 			return nil, err
 		}
 		if valid {
@@ -486,6 +498,7 @@ func (u *attendanceUsecase) validateLocation(
 
 		gpsConfigs, err := u.gpsConfigRepo.FindActiveBranch(ctx, branchID)
 		if err != nil {
+			slog.Error("failed to find GPS configs", "branch_id", branchID, "error", err)
 			return nil, err
 		}
 		for _, cfg := range gpsConfigs {
@@ -683,6 +696,7 @@ func maxTime(a, b time.Time) time.Time {
 func (u *attendanceUsecase) GetShiftConfig(ctx context.Context, userID uint) (*entity.Shift, error) {
 	user, err := u.userRepo.FindByID(ctx, userID)
 	if err != nil {
+		slog.Error("failed to find user for shift config", "user_id", userID, "error", err)
 		return nil, err
 	}
 	if user.BranchID == nil {
@@ -692,6 +706,7 @@ func (u *attendanceUsecase) GetShiftConfig(ctx context.Context, userID uint) (*e
 
 	shift, err := u.shiftRepo.FindDefault(ctx, *user.BranchID)
 	if err != nil {
+		slog.Error("failed to find default shift", "branch_id", *user.BranchID, "error", err)
 		return nil, err
 	}
 	if shift == nil {
