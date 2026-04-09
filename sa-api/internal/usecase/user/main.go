@@ -46,16 +46,19 @@ func (u *userUsecase) Login(ctx context.Context, req usecase.LoginRequest) (*use
 	}
 
 	if !user.IsActive {
+		slog.Warn("login failed - account disabled", "user_id", user.ID, "email", req.Email)
 		return nil, apperrors.New(403, "ACCOUNT_DISABLED", "Tài khoản đã bị vô hiệu hóa")
 	}
 
 	accessToken, err := utils.GenerateToken(user, u.jwtCfg.Secret, u.jwtCfg.ExpireHours)
 	if err != nil {
+		slog.Error("generate access token failed", "user_id", user.ID, "error", err)
 		return nil, apperrors.ErrInternal
 	}
 
 	refreshToken, err := utils.GenerateRefreshToken(user.ID, u.jwtCfg.Secret, u.jwtCfg.RefreshExpireDays)
 	if err != nil {
+		slog.Error("generate refresh token failed", "user_id", user.ID, "error", err)
 		return nil, apperrors.ErrInternal
 	}
 
@@ -81,6 +84,7 @@ func (u *userUsecase) Create(ctx context.Context, req usecase.CreateUserRequest)
 	const defaultPassword = "Admin@123"
 	hashedPass, err := bcrypt.GenerateFromPassword([]byte(defaultPassword), bcrypt.DefaultCost)
 	if err != nil {
+		slog.Error("hash default password failed", "error", err)
 		return nil, apperrors.ErrInternal
 	}
 
@@ -171,11 +175,13 @@ func (u *userUsecase) ChangePassword(ctx context.Context, userID uint, req useca
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(req.OldPassword)); err != nil {
+		slog.Warn("change password failed - wrong old password", "user_id", userID)
 		return apperrors.ErrInvalidPassword
 	}
 
 	hashedPass, err := bcrypt.GenerateFromPassword([]byte(req.NewPassword), bcrypt.DefaultCost)
 	if err != nil {
+		slog.Error("hash new password failed", "user_id", userID, "error", err)
 		return apperrors.ErrInternal
 	}
 
@@ -192,6 +198,7 @@ func (u *userUsecase) ResetPassword(ctx context.Context, userID uint, newPasswor
 
 	hashedPass, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
 	if err != nil {
+		slog.Error("hash reset password failed", "user_id", userID, "error", err)
 		return apperrors.ErrInternal
 	}
 

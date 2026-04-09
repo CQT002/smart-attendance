@@ -105,12 +105,22 @@ class CorrectionModel {
 
   String get originalStatusDisplay {
     switch (originalStatus) {
+      case 'present':
+        return 'Đúng giờ';
       case 'late':
         return 'Đi trễ';
       case 'early_leave':
         return 'Về sớm';
       case 'late_early_leave':
         return 'Đi trễ - Về sớm';
+      case 'absent':
+        return 'Vắng mặt';
+      case 'half_day':
+        return 'Nửa ngày';
+      case 'leave':
+        return 'Nghỉ phép';
+      case 'half_day_leave':
+        return 'Nghỉ phép nửa ngày';
       case 'missing_checkin':
         return 'Thiếu check-in OT';
       case 'missing_checkout':

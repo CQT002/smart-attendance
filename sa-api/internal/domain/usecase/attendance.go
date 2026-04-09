@@ -57,4 +57,7 @@ type AttendanceUsecase interface {
 
 	// GetSummary lấy tổng hợp thống kê chấm công
 	GetSummary(ctx context.Context, userID uint, from, to time.Time) (*repository.AttendanceSummary, error)
+
+	// GetShiftConfig lấy cấu hình ca mặc định của branch mà user thuộc về
+	GetShiftConfig(ctx context.Context, userID uint) (*entity.Shift, error)
 }

@@ -702,22 +702,42 @@ class _HistoryScreenState extends State<HistoryScreen> {
   }
 
   Widget _buildStatusBadge(AttendanceModel record) {
+    final color = _statusColorForRecord(record);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
-        color: _statusColor(record.status).withValues(alpha: 0.15),
+        color: color.withValues(alpha: 0.15),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: _statusColor(record.status).withValues(alpha: 0.4)),
+        border: Border.all(color: color.withValues(alpha: 0.4)),
       ),
       child: Text(
         record.statusDisplay,
         style: TextStyle(
-          color: _statusColor(record.status),
+          color: color,
           fontSize: 12,
           fontWeight: FontWeight.w600,
         ),
       ),
     );
+  }
+
+  /// Xác định màu dựa trên record thực tế (thiếu check-in/out → cam)
+  Color _statusColorForRecord(AttendanceModel record) {
+    final now = DateTime.now();
+    final recordDate = DateTime(record.date.year, record.date.month, record.date.day);
+    final today = DateTime(now.year, now.month, now.day);
+    final isPastDay = recordDate.isBefore(today);
+
+    // Thiếu check-out: đã check-in, chưa check-out, ngày đã qua
+    if (record.hasCheckedIn && !record.hasCheckedOut && isPastDay) {
+      return AppColors.warning;
+    }
+    // Thiếu check-in: chưa check-in, đã check-out, ngày đã qua
+    if (!record.hasCheckedIn && record.hasCheckedOut && isPastDay) {
+      return AppColors.warning;
+    }
+
+    return _statusColor(record.status);
   }
 
   Color _statusColor(String status) {
@@ -1185,23 +1205,27 @@ class _HistoryScreenState extends State<HistoryScreen> {
                   AppDateUtils.formatDate(date),
                   style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
                 ),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: AppColors.textSecondary.withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Text(
-                    date.isAfter(DateTime(today.year, today.month, today.day))
-                        ? 'Ngày tương lai'
-                        : 'Vắng mặt',
-                    style: const TextStyle(
-                      color: AppColors.textSecondary,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
+                Builder(builder: (_) {
+                  final isFuture = date.isAfter(DateTime(today.year, today.month, today.day));
+                  final label = isFuture ? 'Ngày tương lai' : 'Vắng mặt';
+                  final color = isFuture ? AppColors.textSecondary : AppColors.error;
+                  return Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: color.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: color.withValues(alpha: 0.4)),
                     ),
-                  ),
-                ),
+                    child: Text(
+                      label,
+                      style: TextStyle(
+                        color: color,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  );
+                }),
               ],
             ),
             const SizedBox(height: 20),
@@ -1239,7 +1263,18 @@ class _HistoryScreenState extends State<HistoryScreen> {
       AppConstants.statusEarlyLeave,
       AppConstants.statusLateEarlyLeave,
     };
-    return correctableStatuses.contains(record.status);
+    if (correctableStatuses.contains(record.status)) return true;
+
+    // Trường hợp thiếu check-in hoặc check-out, ngày đã qua
+    final now = DateTime.now();
+    final recordDate = DateTime(record.date.year, record.date.month, record.date.day);
+    final today = DateTime(now.year, now.month, now.day);
+    if (recordDate.isBefore(today)) {
+      if (record.hasCheckedIn && !record.hasCheckedOut) return true;
+      if (!record.hasCheckedIn && record.hasCheckedOut) return true;
+    }
+
+    return false;
   }
 
   void _openCorrectionRequest() async {

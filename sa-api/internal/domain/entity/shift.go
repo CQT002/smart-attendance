@@ -27,10 +27,16 @@ type Shift struct {
 	MorningEnd     string `gorm:"size:5;default:'12:00'" json:"morning_end"`     // HH:MM — kết thúc buổi sáng
 	AfternoonStart string `gorm:"size:5;default:'13:00'" json:"afternoon_start"` // HH:MM — bắt đầu buổi chiều
 
+	// Cấu hình khung giờ làm việc chính thức trong tuần
+	// Chấm công chính thức được phép từ Thứ 2 (00:00) → RegularEndDay tại RegularEndTime
+	// Encoding giống Go time.Weekday: 0=CN, 1=T2, 2=T3, 3=T4, 4=T5, 5=T6, 6=T7
+	RegularEndDay  int    `gorm:"default:6"              json:"regular_end_day"`  // Ngày cuối tuần làm việc (default: 6=T7)
+	RegularEndTime string `gorm:"size:5;default:'12:00'" json:"regular_end_time"` // Giờ kết thúc ngày cuối (default: 12:00)
+
 	// Cấu hình tăng ca (OT) theo ca — cho phép khác nhau giữa các ca/chi nhánh
-	OTMinCheckInHour int `gorm:"default:17" json:"ot_min_checkin_hour"` // Giờ sớm nhất check-in OT (VD: 17 = 17:00)
-	OTStartHour      int `gorm:"default:18" json:"ot_start_hour"`      // Giờ bắt đầu tính OT (VD: 18 = 18:00)
-	OTEndHour        int `gorm:"default:22" json:"ot_end_hour"`        // Giờ kết thúc tính OT (VD: 22 = 22:00)
+	OTMinCheckInHour int `gorm:"column:ot_min_checkin_hour;default:17" json:"ot_min_checkin_hour"` // Giờ sớm nhất check-in OT (VD: 17 = 17:00)
+	OTStartHour      int `gorm:"column:ot_start_hour;default:18"       json:"ot_start_hour"`      // Giờ bắt đầu tính OT (VD: 18 = 18:00)
+	OTEndHour        int `gorm:"column:ot_end_hour;default:22"         json:"ot_end_hour"`        // Giờ kết thúc tính OT (VD: 22 = 22:00)
 
 	// idx_shift_branch_default_active priority:2
 	IsDefault bool `gorm:"default:false;index:idx_shift_branch_default_active,priority:2" json:"is_default"`

@@ -88,6 +88,7 @@ func (u *attendanceUsecase) CheckIn(ctx context.Context, req usecase.CheckInRequ
 	}
 	if user.BranchID == nil {
 		// Admin không gắn chi nhánh cụ thể — không áp dụng chấm công theo chi nhánh
+		logger.Error("check-in rejected - user has no branch assigned")
 		return nil, apperrors.New(403, "NO_BRANCH", "Tài khoản không được gắn chi nhánh để chấm công")
 	}
 	branchID := *user.BranchID
@@ -131,10 +132,22 @@ func (u *attendanceUsecase) CheckIn(ctx context.Context, req usecase.CheckInRequ
 			WorkHours:      8,
 			MorningEnd:     "12:00",
 			AfternoonStart: "13:00",
+			RegularEndDay:  6,
+			RegularEndTime: "12:00",
 		}
 	}
 
 	now := utils.Now()
+
+	// === Bước 5b: Kiểm tra khung giờ làm việc chính thức ===
+	if !isWithinRegularWindow(now, shift) {
+		logger.Warn("regular attendance blocked - outside working window",
+			"weekday", now.Weekday(),
+			"regular_end_day", shift.RegularEndDay,
+			"regular_end_time", shift.RegularEndTime,
+		)
+		return nil, apperrors.ErrRegularAttendanceBlocked
+	}
 
 	// === Bước 6: Tạo hoặc cập nhật bản ghi ===
 	if existing != nil {
@@ -164,6 +177,7 @@ func (u *attendanceUsecase) CheckIn(ctx context.Context, req usecase.CheckInRequ
 		}
 
 		if err := u.attendanceRepo.Update(ctx, existing); err != nil {
+			logger.Error("failed to update attendance record on check-in", "attendance_id", existing.ID, "error", err)
 			return nil, err
 		}
 
@@ -210,6 +224,7 @@ func (u *attendanceUsecase) CheckIn(ctx context.Context, req usecase.CheckInRequ
 	}
 
 	if err := u.attendanceRepo.Create(ctx, attendLog); err != nil {
+		logger.Error("failed to create attendance record on check-in", "error", err)
 		return nil, err
 	}
 
@@ -245,6 +260,7 @@ func (u *attendanceUsecase) CheckOut(ctx context.Context, req usecase.CheckOutRe
 		return nil, err
 	}
 	if user.BranchID == nil {
+		logger.Error("check-out rejected - user has no branch assigned")
 		return nil, apperrors.New(403, "NO_BRANCH", "Tài khoản không được gắn chi nhánh để chấm công")
 	}
 	branchID := *user.BranchID
@@ -253,6 +269,22 @@ func (u *attendanceUsecase) CheckOut(ctx context.Context, req usecase.CheckOutRe
 	checkMethod, err := u.validateLocation(ctx, branchID, req.Latitude, req.Longitude, req.SSID, req.BSSID)
 	if err != nil {
 		return nil, err
+	}
+
+	// === Bước 3b: Kiểm tra khung giờ làm việc chính thức ===
+	{
+		shift, _ := u.shiftRepo.FindDefault(ctx, branchID)
+		if shift == nil {
+			shift = &entity.Shift{RegularEndDay: 6, RegularEndTime: "12:00"}
+		}
+		if !isWithinRegularWindow(utils.Now(), shift) {
+			logger.Warn("regular checkout blocked - outside working window",
+				"weekday", utils.Now().Weekday(),
+				"regular_end_day", shift.RegularEndDay,
+				"regular_end_time", shift.RegularEndTime,
+			)
+			return nil, apperrors.ErrRegularAttendanceBlocked
+		}
 	}
 
 	// === Bước 4: Tìm hoặc tạo record hôm nay ===
@@ -289,6 +321,7 @@ func (u *attendanceUsecase) CheckOut(ctx context.Context, req usecase.CheckOutRe
 		}
 
 		if err := u.attendanceRepo.Create(ctx, attendLog); err != nil {
+			logger.Error("failed to create attendance record on check-out", "error", err)
 			return nil, err
 		}
 	} else {
@@ -317,6 +350,7 @@ func (u *attendanceUsecase) CheckOut(ctx context.Context, req usecase.CheckOutRe
 		}
 
 		if err := u.attendanceRepo.Update(ctx, attendLog); err != nil {
+			logger.Error("failed to update attendance record on check-out", "attendance_id", attendLog.ID, "error", err)
 			return nil, err
 		}
 	}
@@ -645,6 +679,41 @@ func maxTime(a, b time.Time) time.Time {
 	return b
 }
 
+// GetShiftConfig lấy cấu hình ca mặc định của branch mà user thuộc về
+func (u *attendanceUsecase) GetShiftConfig(ctx context.Context, userID uint) (*entity.Shift, error) {
+	user, err := u.userRepo.FindByID(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	if user.BranchID == nil {
+		slog.Error("get shift config rejected - user has no branch assigned", "user_id", userID)
+		return nil, apperrors.New(403, "NO_BRANCH", "Tài khoản không được gắn chi nhánh")
+	}
+
+	shift, err := u.shiftRepo.FindDefault(ctx, *user.BranchID)
+	if err != nil {
+		return nil, err
+	}
+	if shift == nil {
+		// Trả về default shift
+		shift = &entity.Shift{
+			StartTime:      "08:00",
+			EndTime:        "17:00",
+			LateAfter:      15,
+			EarlyBefore:    15,
+			WorkHours:      8,
+			MorningEnd:     "12:00",
+			AfternoonStart: "13:00",
+			RegularEndDay:  6,
+			RegularEndTime: "12:00",
+			OTMinCheckInHour: 17,
+			OTStartHour:     18,
+			OTEndHour:       22,
+		}
+	}
+	return shift, nil
+}
+
 // calculateOvertime tính giờ làm thêm (legacy — dùng cho trường hợp không có shift)
 func (u *attendanceUsecase) calculateOvertime(workHours float64, shift *entity.Shift) float64 {
 	if workHours <= shift.WorkHours {
@@ -669,4 +738,51 @@ func parseTime(t string) (int, int) {
 
 func roundToTwoDecimal(f float64) float64 {
 	return float64(int(f*100)) / 100
+}
+
+// isWithinRegularWindow kiểm tra thời điểm now có nằm trong khung giờ làm việc chính thức không.
+//
+// Khung chính thức: Thứ 2 (Monday=1) 00:00 → shift.RegularEndDay tại shift.RegularEndTime.
+// Ngoài khung → chỉ cho phép chấm công tăng ca.
+//
+// Encoding: giống Go time.Weekday — Sunday=0, Monday=1, ..., Saturday=6.
+func isWithinRegularWindow(now time.Time, shift *entity.Shift) bool {
+	endDay := shift.RegularEndDay
+	if endDay < 0 || endDay > 6 {
+		endDay = 6 // fallback Saturday
+	}
+
+	weekday := int(now.Weekday()) // Sunday=0, Monday=1, ..., Saturday=6
+
+	// Edge case: RegularEndDay=0 (Sunday) → cả tuần là chính thức
+	// Monday(1)..Saturday(6) luôn trước Sunday(0) trong tuần làm việc
+	if endDay == 0 {
+		if weekday != 0 {
+			return true // T2–T7 luôn trong khung
+		}
+		// Chủ nhật — check giờ
+		endH, endM := parseTime(shift.RegularEndTime)
+		endLimit := time.Date(now.Year(), now.Month(), now.Day(), endH, endM, 0, 0, now.Location())
+		return !now.After(endLimit)
+	}
+
+	// Chủ nhật (weekday=0) luôn ngoài khung khi endDay != 0
+	if weekday == 0 {
+		return false
+	}
+
+	// Ngày trong tuần < ngày kết thúc → trong khung
+	if weekday < endDay {
+		return true
+	}
+
+	// Ngày trong tuần > ngày kết thúc → ngoài khung
+	if weekday > endDay {
+		return false
+	}
+
+	// weekday == endDay → check giờ
+	endH, endM := parseTime(shift.RegularEndTime)
+	endLimit := time.Date(now.Year(), now.Month(), now.Day(), endH, endM, 0, 0, now.Location())
+	return !now.After(endLimit)
 }

@@ -3,6 +3,7 @@ package report
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/hdbank/smart-attendance/internal/domain/repository"
@@ -202,6 +203,7 @@ func (u *reportUsecase) GetBranchReport(ctx context.Context, filter usecase.Repo
 
 		summaries, err := u.attendanceRepo.GetBranchSummary(ctx, branch.ID, from, to)
 		if err != nil {
+			slog.Error("failed to get branch summary for report", "branch_id", branch.ID, "branch_code", branch.Code, "error", err)
 			continue
 		}
 

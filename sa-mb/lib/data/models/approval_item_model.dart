@@ -123,6 +123,8 @@ class ApprovalItemModel {
 
   String get originalStatusDisplay {
     switch (detail) {
+      case 'present':
+        return 'Đúng giờ';
       case 'late':
         return 'Đi trễ';
       case 'early_leave':
@@ -133,6 +135,10 @@ class ApprovalItemModel {
         return 'Vắng mặt';
       case 'half_day':
         return 'Nửa ngày';
+      case 'leave':
+        return 'Nghỉ phép';
+      case 'half_day_leave':
+        return 'Nghỉ phép nửa ngày';
       case 'overtime':
         return 'Tăng ca';
       case 'missing_checkin':

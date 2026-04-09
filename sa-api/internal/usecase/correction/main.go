@@ -90,6 +90,7 @@ func (u *correctionUsecase) createAttendanceCorrection(ctx context.Context, req 
 		return nil, err
 	}
 	if attendLog.UserID != req.UserID {
+		logger.Warn("correction rejected - user does not own attendance log", "attendance_log_id", req.AttendanceLogID)
 		return nil, apperrors.ErrForbidden
 	}
 	if !isCorrectableStatus(attendLog.Status) {
@@ -152,6 +153,7 @@ func (u *correctionUsecase) createOvertimeCorrection(ctx context.Context, req us
 		return nil, err
 	}
 	if otReq.UserID != req.UserID {
+		logger.Warn("overtime correction rejected - user does not own overtime request", "overtime_request_id", req.OvertimeRequestID)
 		return nil, apperrors.ErrForbidden
 	}
 
@@ -322,6 +324,7 @@ func (u *correctionUsecase) processAttendanceCorrection(
 	now time.Time,
 ) error {
 	if correction.AttendanceLogID == nil {
+		slog.Error("correction missing attendance_log_id", "correction_id", correction.ID)
 		return apperrors.ErrNotFound
 	}
 
@@ -409,6 +412,7 @@ func (u *correctionUsecase) processOvertimeCorrection(
 	now time.Time,
 ) error {
 	if correction.OvertimeRequestID == nil {
+		slog.Error("correction missing overtime_request_id", "correction_id", correction.ID)
 		return apperrors.ErrNotFound
 	}
 
@@ -419,6 +423,8 @@ func (u *correctionUsecase) processOvertimeCorrection(
 	}
 
 	if otReq.ActualCheckin == nil || otReq.ActualCheckout == nil {
+		slog.Error("overtime request missing checkin/checkout after correction",
+			"correction_id", correction.ID, "overtime_request_id", *correction.OvertimeRequestID)
 		return apperrors.ErrOvertimeNotCompleted
 	}
 

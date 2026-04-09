@@ -141,3 +141,19 @@ func (h *AttendanceHandler) GetMyHistory(c echo.Context) error {
 
 	return response.Paginated(c, records, total, page, limit)
 }
+
+// GetShiftConfig godoc
+// @Summary Lấy cấu hình ca làm việc mặc định của chi nhánh user
+// @Tags Attendance
+// @Security BearerAuth
+// @Produce json
+// @Success 200 {object} response.Response{data=entity.Shift}
+// @Router /attendance/shift-config [get]
+func (h *AttendanceHandler) GetShiftConfig(c echo.Context) error {
+	userID := getUserIDFromContext(c)
+	shift, err := h.attendanceUsecase.GetShiftConfig(c.Request().Context(), userID)
+	if err != nil {
+		return response.Error(c, err)
+	}
+	return response.OK(c, shift)
+}

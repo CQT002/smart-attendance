@@ -104,7 +104,7 @@ class _LeaveRequestScreenState extends State<LeaveRequestScreen> {
                         if (_isPastDate && widget.attendance != null) ...[
                           const SizedBox(height: 8),
                           _infoRow('Trạng thái thực tế',
-                              _statusLabel(widget.attendance!.status)),
+                              widget.attendance!.statusDisplay),
                           if (widget.attendance!.checkInTime != null) ...[
                             const SizedBox(height: 8),
                             _infoRow(
@@ -319,17 +319,6 @@ class _LeaveRequestScreenState extends State<LeaveRequestScreen> {
         Text(value, style: const TextStyle(fontWeight: FontWeight.w600)),
       ],
     );
-  }
-
-  String _statusLabel(String status) {
-    switch (status) {
-      case 'absent':
-        return 'Vắng mặt';
-      case 'half_day':
-        return 'Nửa ngày';
-      default:
-        return status;
-    }
   }
 
   String _leaveTypeLabel(String type) {

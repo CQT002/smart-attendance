@@ -30,6 +30,7 @@ type RouterDeps struct {
 	AdminOvertimeHandler   *handlerAdmin.OvertimeHandler
 	ReportHandler          *handlerAdmin.ReportHandler
 	WiFiConfigHandler      *handlerAdmin.WiFiConfigHandler
+	ShiftHandler           *handlerAdmin.ShiftHandler
 
 	Cache     cache.Cache
 	JWTSecret string
@@ -73,6 +74,7 @@ func SetupRouter(e *echo.Echo, deps RouterDeps) {
 		middleware.CheckInRateLimiter(deps.Cache))
 	attend.GET("/today", deps.AttendanceHandler.GetMyToday)
 	attend.GET("/history", deps.AttendanceHandler.GetMyHistory)
+	attend.GET("/shift-config", deps.AttendanceHandler.GetShiftConfig)
 
 	// ── Employee correction routes (chấm công bù) ──
 	corrections := protected.Group("/attendance/corrections")
@@ -162,6 +164,16 @@ func SetupRouter(e *echo.Echo, deps RouterDeps) {
 	branches.PUT("/:id", deps.BranchHandler.Update,
 		middleware.RequireRole(entity.RoleAdmin))
 	branches.DELETE("/:id", deps.BranchHandler.Delete,
+		middleware.RequireRole(entity.RoleAdmin))
+
+	// Admin - Shift management (nested under branches)
+	shifts := branches.Group("/:branch_id/shifts")
+	shifts.GET("", deps.ShiftHandler.GetByBranch)
+	shifts.POST("", deps.ShiftHandler.Create,
+		middleware.RequireRole(entity.RoleAdmin))
+	shifts.PUT("/:id", deps.ShiftHandler.Update,
+		middleware.RequireRole(entity.RoleAdmin))
+	shifts.DELETE("/:id", deps.ShiftHandler.Delete,
 		middleware.RequireRole(entity.RoleAdmin))
 
 	// Admin - WiFi config management (nested under branches)

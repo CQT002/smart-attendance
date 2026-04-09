@@ -18,10 +18,11 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Plus, Search, Pencil, Trash2, MapPin, Wifi, Eye } from "lucide-react";
+import { Plus, Search, Pencil, Trash2, MapPin, Wifi, Eye, Clock } from "lucide-react";
 import { BranchFilter, Branch, CreateBranchRequest, UpdateBranchRequest } from "@/types/branch";
 import { BranchFormDialog } from "@/components/branches/branch-form-dialog";
 import { WifiConfigDialog } from "@/components/branches/wifi-config-dialog";
+import { ShiftConfigDialog } from "@/components/branches/shift-config-dialog";
 import { BranchDetailDialog } from "@/components/branches/branch-detail-dialog";
 import { formatDate } from "@/lib/utils";
 
@@ -35,6 +36,7 @@ export default function BranchesPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [wifiBranch, setWifiBranch] = useState<Branch | null>(null);
   const [detailBranch, setDetailBranch] = useState<Branch | null>(null);
+  const [shiftBranch, setShiftBranch] = useState<Branch | null>(null);
 
   // Manager: backend tự filter theo chi nhánh qua JWT
   const { data, isLoading } = useBranches(filter);
@@ -87,6 +89,7 @@ export default function BranchesPage() {
                       <TableHead>Liên hệ</TableHead>
                       <TableHead>GPS</TableHead>
                       <TableHead>WiFi</TableHead>
+                      <TableHead>Ca</TableHead>
                       <TableHead>Trạng thái</TableHead>
                       <TableHead>Ngày tạo</TableHead>
                       <TableHead className="text-right">Thao tác</TableHead>
@@ -140,6 +143,17 @@ export default function BranchesPage() {
                           )}
                         </TableCell>
                         <TableCell>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8"
+                            onClick={() => setShiftBranch(branch)}
+                            title="Cấu hình ca làm việc"
+                          >
+                            <Clock className="h-4 w-4 text-blue-600" />
+                          </Button>
+                        </TableCell>
+                        <TableCell>
                           <ActiveBadge isActive={branch.is_active} />
                         </TableCell>
                         <TableCell className="text-sm text-muted-foreground">
@@ -185,7 +199,7 @@ export default function BranchesPage() {
                     ))}
                     {data?.data.length === 0 && (
                       <TableRow>
-                        <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+                        <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
                           Không tìm thấy chi nhánh nào
                         </TableCell>
                       </TableRow>
@@ -235,6 +249,15 @@ export default function BranchesPage() {
           branch={wifiBranch}
           open={!!wifiBranch}
           onClose={() => setWifiBranch(null)}
+        />
+      )}
+
+      {/* Shift config dialog */}
+      {shiftBranch && (
+        <ShiftConfigDialog
+          branch={shiftBranch}
+          open={!!shiftBranch}
+          onClose={() => setShiftBranch(null)}
         />
       )}
 

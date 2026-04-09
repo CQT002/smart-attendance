@@ -113,6 +113,16 @@ class AttendanceModel {
   bool get isComplete => hasCheckedIn && hasCheckedOut;
 
   String get statusDisplay {
+    final now = DateTime.now();
+    final recordDate = DateTime(date.year, date.month, date.day);
+    final today = DateTime(now.year, now.month, now.day);
+    final isPastDay = recordDate.isBefore(today);
+
+    // Thiếu check-out: đã check-in, chưa check-out, ngày đã qua
+    if (hasCheckedIn && !hasCheckedOut && isPastDay) return 'Thiếu check-out';
+    // Thiếu check-in: chưa check-in, đã check-out, ngày đã qua
+    if (!hasCheckedIn && hasCheckedOut && isPastDay) return 'Thiếu check-in';
+
     switch (status) {
       case 'present':
         return 'Đúng giờ';

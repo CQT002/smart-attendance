@@ -175,6 +175,7 @@ func (u *leaveUsecase) Create(ctx context.Context, req usecase.CreateLeaveReques
 		return nil, err
 	}
 	if existing != nil {
+		logger.Warn("leave request already exists for date", "existing_id", existing.ID)
 		return nil, apperrors.ErrLeaveAlreadyExists
 	}
 

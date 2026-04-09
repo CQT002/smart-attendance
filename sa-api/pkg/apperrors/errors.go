@@ -106,6 +106,12 @@ var (
 	ErrLeaveInsufficientBalance = New(http.StatusBadRequest, "LEAVE_INSUFFICIENT_BALANCE", "Số ngày phép không đủ")
 )
 
+// Attendance schedule errors
+var (
+	ErrRegularAttendanceBlocked = New(http.StatusForbidden, "REGULAR_ATTENDANCE_BLOCKED",
+		"Ngoài khung giờ làm việc chính thức. Vui lòng sử dụng chấm công tăng ca.")
+)
+
 // Overtime errors
 var (
 	ErrOvertimeCheckInTooEarly   = New(http.StatusBadRequest, "OT_CHECKIN_TOO_EARLY", "Chỉ được check-in tăng ca sau 17:00")

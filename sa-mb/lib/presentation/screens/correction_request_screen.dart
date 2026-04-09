@@ -69,7 +69,7 @@ class _CorrectionRequestScreenState extends State<CorrectionRequestScreen> {
                         const SizedBox(height: 12),
                         _infoRow('Ngày', AppDateUtils.formatDate(attendance.date)),
                         const SizedBox(height: 8),
-                        _infoRow('Trạng thái', _statusLabel(attendance.status)),
+                        _infoRow('Trạng thái', attendance.statusDisplay),
                         const SizedBox(height: 8),
                         _infoRow(
                           'Check-in',
@@ -185,19 +185,6 @@ class _CorrectionRequestScreenState extends State<CorrectionRequestScreen> {
         Text(value, style: const TextStyle(fontWeight: FontWeight.w600)),
       ],
     );
-  }
-
-  String _statusLabel(String status) {
-    switch (status) {
-      case 'late':
-        return 'Đi trễ';
-      case 'early_leave':
-        return 'Về sớm';
-      case 'late_early_leave':
-        return 'Đi trễ - Về sớm';
-      default:
-        return status;
-    }
   }
 
   void _submit() {
