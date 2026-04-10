@@ -1,1 +1,0 @@
-- [Senior Manager role](user_role.md) — SM developing Smart Attendance for HDBBank, communicates in Vietnamese
