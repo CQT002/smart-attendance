@@ -94,9 +94,22 @@ func (u *correctionUsecase) createAttendanceCorrection(ctx context.Context, req 
 		logger.Warn("correction rejected - user does not own attendance log", "attendance_log_id", req.AttendanceLogID)
 		return nil, apperrors.ErrForbidden
 	}
-	if !isCorrectableStatus(attendLog.Status) {
-		logger.Warn("correction rejected - invalid status", "status", attendLog.Status)
-		return nil, apperrors.ErrCorrectionInvalidStatus
+
+	// Xác định trạng thái gốc cho correction:
+	//   - Có check-in, thiếu check-out → missing_checkout
+	//   - Thiếu check-in, có check-out → missing_checkin
+	//   - Còn lại: dùng status hiện tại (chỉ chấp nhận late/early_leave/late_early_leave)
+	originalStatus := attendLog.Status
+	switch {
+	case attendLog.CheckInTime != nil && attendLog.CheckOutTime == nil:
+		originalStatus = entity.StatusMissingCheckout
+	case attendLog.CheckInTime == nil && attendLog.CheckOutTime != nil:
+		originalStatus = entity.StatusMissingCheckin
+	default:
+		if !isCorrectableStatus(attendLog.Status) {
+			logger.Warn("correction rejected - invalid status", "status", attendLog.Status)
+			return nil, apperrors.ErrCorrectionInvalidStatus
+		}
 	}
 
 	existing, err := u.correctionRepo.FindByAttendanceLogID(ctx, req.AttendanceLogID)
@@ -108,7 +121,7 @@ func (u *correctionUsecase) createAttendanceCorrection(ctx context.Context, req 
 		return nil, apperrors.ErrCorrectionAlreadyExists
 	}
 
-	creditNeeded := int64(entity.CreditCountForStatus(attendLog.Status))
+	creditNeeded := int64(entity.CreditCountForStatus(originalStatus))
 	now := utils.Now()
 	usedCredits, err := u.correctionRepo.CountByUserInMonth(ctx, req.UserID, now, entity.CorrectionTypeAttendance)
 	if err != nil {
@@ -126,7 +139,7 @@ func (u *correctionUsecase) createAttendanceCorrection(ctx context.Context, req 
 		UserID:          req.UserID,
 		BranchID:        attendLog.BranchID,
 		AttendanceLogID: &req.AttendanceLogID,
-		OriginalStatus:  attendLog.Status,
+		OriginalStatus:  originalStatus,
 		CreditCount:     int(creditNeeded),
 		Description:     req.Description,
 		Status:          entity.CorrectionStatusPending,
@@ -359,9 +372,9 @@ func (u *correctionUsecase) processAttendanceCorrection(
 		shiftEnd := time.Date(attendLog.Date.Year(), attendLog.Date.Month(), attendLog.Date.Day(), endH, endM, 0, 0, utils.HCM)
 
 		switch correction.OriginalStatus {
-		case entity.StatusLate:
+		case entity.StatusLate, entity.StatusMissingCheckin:
 			updates["check_in_time"] = shiftStart
-		case entity.StatusEarlyLeave:
+		case entity.StatusEarlyLeave, entity.StatusMissingCheckout:
 			updates["check_out_time"] = shiftEnd
 		case entity.StatusLateEarlyLeave:
 			updates["check_in_time"] = shiftStart
@@ -370,11 +383,12 @@ func (u *correctionUsecase) processAttendanceCorrection(
 
 		checkIn := shiftStart
 		checkOut := shiftEnd
-		if correction.OriginalStatus == entity.StatusLate {
+		switch correction.OriginalStatus {
+		case entity.StatusLate, entity.StatusMissingCheckin:
 			if attendLog.CheckOutTime != nil {
 				checkOut = *attendLog.CheckOutTime
 			}
-		} else if correction.OriginalStatus == entity.StatusEarlyLeave {
+		case entity.StatusEarlyLeave, entity.StatusMissingCheckout:
 			if attendLog.CheckInTime != nil {
 				checkIn = *attendLog.CheckInTime
 			}

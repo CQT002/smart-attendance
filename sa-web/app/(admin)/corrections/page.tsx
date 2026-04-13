@@ -74,8 +74,8 @@ const ORIGINAL_STATUS_LABEL: Record<string, string> = {
   late_early_leave: "Đi trễ - Về sớm",
   absent: "Vắng mặt",
   half_day: "Nửa ngày",
-  missing_checkin: "Thiếu check-in OT",
-  missing_checkout: "Thiếu check-out OT",
+  missing_checkin: "Thiếu check-in",
+  missing_checkout: "Thiếu check-out",
 };
 
 const LEAVE_TYPE_LABEL: Record<string, string> = {
