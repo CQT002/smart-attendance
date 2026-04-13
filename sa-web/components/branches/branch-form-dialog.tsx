@@ -13,7 +13,14 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Loader2, Plus, Trash2, Wifi } from "lucide-react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Loader2, Plus, Trash2, Wifi, Clock } from "lucide-react";
 import { Branch, CreateBranchRequest, UpdateBranchRequest } from "@/types/branch";
 import { useEffect, useState } from "react";
 import {
@@ -21,6 +28,8 @@ import {
   useCreateWifiConfig,
   useDeleteWifiConfig,
 } from "@/hooks/use-wifi-configs";
+import { useShifts, useUpdateShift } from "@/hooks/use-shifts";
+import { DAY_NAMES } from "@/services/shift.service";
 
 const schema = z.object({
   code: z.string().min(1, "Bắt buộc").optional().or(z.literal("")),
@@ -76,6 +85,11 @@ export function BranchFormDialog({
   const { data: existingWifi } = useWifiConfigs(isEdit ? defaultValues!.id : 0);
   const createWifi = useCreateWifiConfig(isEdit ? defaultValues!.id : 0);
   const deleteWifi = useDeleteWifiConfig(isEdit ? defaultValues!.id : 0);
+
+  // Shift hooks for edit mode
+  const { data: shifts } = useShifts(isEdit ? defaultValues!.id : 0);
+  const updateShift = useUpdateShift(isEdit ? defaultValues!.id : 0);
+  const defaultShift = shifts?.find((s) => s.is_default) ?? shifts?.[0];
 
   useEffect(() => {
     if (open) {
@@ -312,6 +326,148 @@ export function BranchFormDialog({
               Thêm mạng WiFi của chi nhánh để nhân viên check-in bằng WiFi
             </p>
           </div>
+
+          {/* Shift Config — chỉ hiện ở edit mode */}
+          {isEdit && defaultShift && (
+            <div className="rounded-lg border p-4 space-y-3">
+              <h3 className="font-medium text-sm flex items-center gap-2">
+                <Clock className="h-4 w-4 text-blue-500" /> Ca làm việc — {defaultShift.name}
+              </h3>
+
+              <div className="grid grid-cols-3 gap-3">
+                <div className="space-y-1">
+                  <Label className="text-xs">Giờ vào</Label>
+                  <Input
+                    type="time"
+                    defaultValue={defaultShift.start_time}
+                    onBlur={(e) => updateShift.mutate({ id: defaultShift.id, data: { start_time: e.target.value } })}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Giờ ra</Label>
+                  <Input
+                    type="time"
+                    defaultValue={defaultShift.end_time}
+                    onBlur={(e) => updateShift.mutate({ id: defaultShift.id, data: { end_time: e.target.value } })}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Số giờ chuẩn</Label>
+                  <Input
+                    type="number"
+                    step="0.5"
+                    defaultValue={defaultShift.work_hours}
+                    onBlur={(e) => updateShift.mutate({ id: defaultShift.id, data: { work_hours: Number(e.target.value) } })}
+                  />
+                </div>
+              </div>
+
+              {/* Khung chính thức */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label className="text-xs">Ngày cuối tuần làm việc</Label>
+                  <Select
+                    defaultValue={String(defaultShift.regular_end_day)}
+                    onValueChange={(v) => updateShift.mutate({ id: defaultShift.id, data: { regular_end_day: Number(v) } })}
+                  >
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {DAY_NAMES.map((name, idx) => (
+                        <SelectItem key={idx} value={String(idx)}>{name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Giờ kết thúc ngày cuối</Label>
+                  <Input
+                    type="time"
+                    defaultValue={defaultShift.regular_end_time}
+                    onBlur={(e) => updateShift.mutate({ id: defaultShift.id, data: { regular_end_time: e.target.value } })}
+                  />
+                </div>
+              </div>
+
+              {/* Nghỉ trưa */}
+              <div className="grid grid-cols-4 gap-3">
+                <div className="space-y-1">
+                  <Label className="text-xs">Nghỉ trưa từ</Label>
+                  <Input
+                    type="time"
+                    defaultValue={defaultShift.morning_end}
+                    onBlur={(e) => updateShift.mutate({ id: defaultShift.id, data: { morning_end: e.target.value } })}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Nghỉ trưa đến</Label>
+                  <Input
+                    type="time"
+                    defaultValue={defaultShift.afternoon_start}
+                    onBlur={(e) => updateShift.mutate({ id: defaultShift.id, data: { afternoon_start: e.target.value } })}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Trễ sau (phút)</Label>
+                  <Input
+                    type="number"
+                    defaultValue={defaultShift.late_after}
+                    onBlur={(e) => updateShift.mutate({ id: defaultShift.id, data: { late_after: Number(e.target.value) } })}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Sớm trước (phút)</Label>
+                  <Input
+                    type="number"
+                    defaultValue={defaultShift.early_before}
+                    onBlur={(e) => updateShift.mutate({ id: defaultShift.id, data: { early_before: Number(e.target.value) } })}
+                  />
+                </div>
+              </div>
+
+              {/* OT */}
+              <div className="grid grid-cols-3 gap-3">
+                <div className="space-y-1">
+                  <Label className="text-xs">OT check-in sớm nhất</Label>
+                  <Input
+                    type="number"
+                    defaultValue={defaultShift.ot_min_checkin_hour}
+                    onBlur={(e) => updateShift.mutate({ id: defaultShift.id, data: { ot_min_checkin_hour: Number(e.target.value) } })}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">OT bắt đầu tính (giờ)</Label>
+                  <Input
+                    type="number"
+                    defaultValue={defaultShift.ot_start_hour}
+                    onBlur={(e) => updateShift.mutate({ id: defaultShift.id, data: { ot_start_hour: Number(e.target.value) } })}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">OT kết thúc (giờ)</Label>
+                  <Input
+                    type="number"
+                    defaultValue={defaultShift.ot_end_hour}
+                    onBlur={(e) => updateShift.mutate({ id: defaultShift.id, data: { ot_end_hour: Number(e.target.value) } })}
+                  />
+                </div>
+              </div>
+
+              <p className="text-xs text-muted-foreground">
+                Thay đổi được lưu tự động khi bạn rời khỏi ô nhập liệu
+              </p>
+            </div>
+          )}
+
+          {isEdit && !defaultShift && shifts !== undefined && (
+            <div className="rounded-lg border p-4">
+              <h3 className="font-medium text-sm flex items-center gap-2 text-muted-foreground">
+                <Clock className="h-4 w-4" /> Chưa có ca làm việc
+              </h3>
+              <p className="text-xs text-muted-foreground mt-1">
+                Vào mục Chi nhánh → bấm icon đồng hồ để tạo ca làm việc cho chi nhánh này.
+              </p>
+            </div>
+          )}
 
           <DialogFooter>
             <Button type="button" variant="outline" onClick={onClose}>

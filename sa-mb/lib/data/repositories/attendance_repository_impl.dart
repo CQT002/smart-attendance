@@ -2,6 +2,7 @@ import '../../core/network/api_client.dart';
 import '../../core/constants/api_constants.dart';
 import '../../data/models/api_response_model.dart';
 import '../../data/models/attendance_model.dart';
+import '../../data/models/shift_config_model.dart';
 import '../../domain/repositories/attendance_repository.dart';
 
 class AttendanceRepositoryImpl implements AttendanceRepository {
@@ -134,5 +135,22 @@ class AttendanceRepositoryImpl implements AttendanceRepository {
     }
 
     return apiResponse.data!;
+  }
+
+  @override
+  Future<ShiftConfigModel?> getShiftConfig() async {
+    try {
+      final response = await _apiClient.get(ApiConstants.shiftConfig);
+
+      final apiResponse = ApiResponse.fromJson(
+        response.data as Map<String, dynamic>,
+        (data) => ShiftConfigModel.fromJson(data as Map<String, dynamic>),
+      );
+
+      if (!apiResponse.success) return null;
+      return apiResponse.data;
+    } catch (_) {
+      return null;
+    }
   }
 }

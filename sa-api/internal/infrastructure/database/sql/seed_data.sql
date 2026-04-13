@@ -58,10 +58,17 @@ SELECT setval('gps_configs_id_seq', (SELECT COALESCE(MAX(id), 1) FROM gps_config
 -- ============================================================
 -- 5. Shifts
 -- ============================================================
-INSERT INTO shifts (id, branch_id, name, start_time, end_time, late_after, early_before, work_hours, is_default, is_active, created_at, updated_at)
+INSERT INTO shifts (id, branch_id, name, start_time, end_time, late_after, early_before, work_hours, morning_end, afternoon_start, regular_end_day, regular_end_time, ot_min_checkin_hour, ot_start_hour, ot_end_hour, is_default, is_active, created_at, updated_at)
 VALUES
-    (1, 1, 'Ca hành chính', '08:00', '17:00', 15, 15, 8.00, true, true, '2026-04-03 14:19:00.141+07', '2026-04-03 14:19:00.141+07')
-ON CONFLICT (id) DO NOTHING;
+    (1, 1, 'Ca hành chính', '08:00', '17:00', 15, 15, 8.00, '12:00', '13:00', 6, '12:00', 17, 18, 22, true, true, '2026-04-03 14:19:00.141+07', '2026-04-03 14:19:00.141+07')
+ON CONFLICT (id) DO UPDATE SET
+    morning_end = EXCLUDED.morning_end,
+    afternoon_start = EXCLUDED.afternoon_start,
+    regular_end_day = EXCLUDED.regular_end_day,
+    regular_end_time = EXCLUDED.regular_end_time,
+    ot_min_checkin_hour = EXCLUDED.ot_min_checkin_hour,
+    ot_start_hour = EXCLUDED.ot_start_hour,
+    ot_end_hour = EXCLUDED.ot_end_hour;
 
 -- Cập nhật sequence shifts
 SELECT setval('shifts_id_seq', (SELECT COALESCE(MAX(id), 1) FROM shifts));

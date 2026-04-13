@@ -87,9 +87,11 @@ func (u *overtimeUsecase) CheckIn(ctx context.Context, req usecase.OvertimeCheck
 	// Lấy thông tin user để có branch_id
 	user, err := u.userRepo.FindByID(ctx, req.UserID)
 	if err != nil {
+		slog.Error("failed to find user for overtime check-in", "user_id", req.UserID, "error", err)
 		return nil, err
 	}
 	if user.BranchID == nil {
+		slog.Error("overtime check-in failed - user has no branch", "user_id", req.UserID)
 		return nil, apperrors.ErrForbidden
 	}
 
@@ -107,12 +109,15 @@ func (u *overtimeUsecase) CheckIn(ctx context.Context, req usecase.OvertimeCheck
 	// 2. Kiểm tra chưa có OT request cho ngày này
 	existing, err := u.overtimeRepo.FindByUserAndDate(ctx, req.UserID, today)
 	if err != nil {
+		slog.Error("failed to check existing overtime for check-in", "user_id", req.UserID, "error", err)
 		return nil, err
 	}
 	if existing != nil {
 		if existing.IsCheckedIn() {
+			logger.Warn("overtime already checked in", "existing_id", existing.ID)
 			return nil, apperrors.ErrOvertimeAlreadyCheckedIn
 		}
+		logger.Warn("overtime request already exists", "existing_id", existing.ID)
 		return nil, apperrors.ErrOvertimeAlreadyExists
 	}
 
@@ -126,6 +131,7 @@ func (u *overtimeUsecase) CheckIn(ctx context.Context, req usecase.OvertimeCheck
 	}
 
 	if err := u.overtimeRepo.Create(ctx, otReq); err != nil {
+		slog.Error("failed to create overtime request", "user_id", req.UserID, "error", err)
 		return nil, err
 	}
 
@@ -165,20 +171,24 @@ func (u *overtimeUsecase) CheckOut(ctx context.Context, req usecase.OvertimeChec
 	if req.OvertimeID > 0 {
 		otReq, err = u.overtimeRepo.FindByID(ctx, req.OvertimeID)
 		if err != nil {
+			slog.Error("failed to find overtime for check-out", "overtime_id", req.OvertimeID, "error", err)
 			return nil, err
 		}
 		if otReq.UserID != req.UserID {
+			logger.Warn("overtime check-out forbidden - user mismatch", "ot_user_id", otReq.UserID)
 			return nil, apperrors.ErrForbidden
 		}
 	} else {
 		// Tìm OT init (đã check-in) cho hôm nay
 		otReq, err = u.overtimeRepo.FindActiveByUserAndDate(ctx, req.UserID, today)
 		if err != nil {
+			slog.Error("failed to find active overtime for check-out", "user_id", req.UserID, "error", err)
 			return nil, err
 		}
 	}
 
 	if otReq != nil && otReq.IsCheckedOut() {
+		logger.Warn("overtime already checked out", "overtime_id", otReq.ID)
 		return nil, apperrors.ErrOvertimeAlreadyCheckedOut
 	}
 
@@ -189,9 +199,11 @@ func (u *overtimeUsecase) CheckOut(ctx context.Context, req usecase.OvertimeChec
 	} else {
 		user, err := u.userRepo.FindByID(ctx, req.UserID)
 		if err != nil {
+			slog.Error("failed to find user for overtime check-out", "user_id", req.UserID, "error", err)
 			return nil, err
 		}
 		if user.BranchID == nil {
+			slog.Error("overtime check-out failed - user has no branch", "user_id", req.UserID)
 			return nil, apperrors.ErrForbidden
 		}
 		branchID = *user.BranchID
@@ -211,18 +223,22 @@ func (u *overtimeUsecase) CheckOut(ctx context.Context, req usecase.OvertimeChec
 		otReq.Status = entity.OvertimeStatusPending
 
 		if err := u.overtimeRepo.Update(ctx, otReq); err != nil {
+			slog.Error("failed to update overtime checkout", "overtime_id", otReq.ID, "error", err)
 			return nil, err
 		}
 	} else {
 		if otReq != nil {
+			logger.Warn("overtime request already exists", "overtime_id", otReq.ID)
 			return nil, apperrors.ErrOvertimeAlreadyExists
 		}
 		// Kịch bản 2: Chưa check-in → tạo mới chỉ có checkout, status init
 		existing, err := u.overtimeRepo.FindByUserAndDate(ctx, req.UserID, today)
 		if err != nil {
+			slog.Error("failed to check existing overtime for check-out", "user_id", req.UserID, "error", err)
 			return nil, err
 		}
 		if existing != nil {
+			logger.Warn("overtime request already exists for today", "existing_id", existing.ID)
 			return nil, apperrors.ErrOvertimeAlreadyExists
 		}
 
@@ -234,6 +250,7 @@ func (u *overtimeUsecase) CheckOut(ctx context.Context, req usecase.OvertimeChec
 			Status:         entity.OvertimeStatusInit, // init — cần bù check-in
 		}
 		if err := u.overtimeRepo.Create(ctx, otReq); err != nil {
+			slog.Error("failed to create overtime request (checkout only)", "user_id", req.UserID, "error", err)
 			return nil, err
 		}
 	}
@@ -304,10 +321,12 @@ func (u *overtimeUsecase) Process(ctx context.Context, req usecase.ProcessOverti
 
 	otReq, err := u.overtimeRepo.FindByID(ctx, req.OvertimeID)
 	if err != nil {
+		slog.Error("failed to find overtime for processing", "overtime_id", req.OvertimeID, "error", err)
 		return nil, err
 	}
 
 	if !otReq.IsPending() {
+		logger.Warn("overtime not in pending status", "current_status", otReq.Status)
 		return nil, apperrors.ErrOvertimeNotPending
 	}
 
@@ -319,6 +338,7 @@ func (u *overtimeUsecase) Process(ctx context.Context, req usecase.ProcessOverti
 
 	// Check-out phải hoàn tất trước khi duyệt
 	if !otReq.IsCheckedOut() {
+		logger.Warn("overtime not completed - missing checkout")
 		return nil, apperrors.ErrOvertimeNotCompleted
 	}
 
@@ -384,6 +404,7 @@ func (u *overtimeUsecase) Process(ctx context.Context, req usecase.ProcessOverti
 		otReq.ManagerNote = req.ManagerNote
 
 		if err := u.overtimeRepo.Update(ctx, otReq); err != nil {
+			slog.Error("failed to update overtime rejection", "overtime_id", otReq.ID, "error", err)
 			return nil, err
 		}
 
@@ -416,6 +437,7 @@ func (u *overtimeUsecase) GetMyToday(ctx context.Context, userID uint) (*entity.
 	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, utils.HCM)
 	otReq, err := u.overtimeRepo.FindByUserAndDate(ctx, userID, today)
 	if err != nil {
+		slog.Error("failed to find today overtime", "user_id", userID, "error", err)
 		return nil, err
 	}
 	if otReq == nil {
@@ -434,6 +456,7 @@ func (u *overtimeUsecase) BatchApprove(ctx context.Context, processedByID uint, 
 	}
 	overtimes, _, err := u.overtimeRepo.FindAll(ctx, filter)
 	if err != nil {
+		slog.Error("failed to find pending overtimes for batch approve", "error", err)
 		return 0, err
 	}
 

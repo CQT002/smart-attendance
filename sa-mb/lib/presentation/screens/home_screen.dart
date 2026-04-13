@@ -6,6 +6,7 @@ import '../../core/theme/app_colors.dart';
 import '../../core/utils/date_utils.dart';
 import '../../data/models/attendance_model.dart';
 import '../../data/models/overtime_model.dart';
+import '../../data/models/shift_config_model.dart';
 import '../../data/models/user_model.dart';
 import '../../domain/repositories/overtime_repository.dart';
 import '../blocs/attendance/attendance_bloc.dart';
@@ -112,6 +113,7 @@ class _HomeTabState extends State<_HomeTab> {
   AttendanceModel? _lastKnownToday;
   OvertimeModel? _todayOvertime;
   Map<String, OvertimeModel> _weekOvertimeByDate = {};
+  ShiftConfigModel? _shiftConfig;
 
   @override
   void initState() {
@@ -121,6 +123,7 @@ class _HomeTabState extends State<_HomeTab> {
     _fetchToday();
     _fetchTodayOvertime();
     _fetchWeekOvertime();
+    _fetchShiftConfig();
   }
 
   void _fetchToday() async {
@@ -152,6 +155,16 @@ class _HomeTabState extends State<_HomeTab> {
               '${ot.date.year}-${ot.date.month.toString().padLeft(2, '0')}-${ot.date.day.toString().padLeft(2, '0')}': ot,
           };
         });
+      }
+    } catch (_) {}
+  }
+
+  void _fetchShiftConfig() async {
+    try {
+      final repo = context.read<AttendanceRepository>();
+      final config = await repo.getShiftConfig();
+      if (mounted && config != null) {
+        setState(() => _shiftConfig = config);
       }
     } catch (_) {}
   }
@@ -194,6 +207,7 @@ class _HomeTabState extends State<_HomeTab> {
           _fetchHistory();
           _fetchTodayOvertime();
           _fetchWeekOvertime();
+          _fetchShiftConfig();
           setState(() {});
         },
         child: SingleChildScrollView(
@@ -374,12 +388,35 @@ class _HomeTabState extends State<_HomeTab> {
                     ),
                     const SizedBox(height: 20),
 
-                    // Buttons — luôn enable, backend xử lý idempotent
+                    // Buttons — disable khi ngoài khung giờ chính thức
+                    if (_shiftConfig != null && !_shiftConfig!.isWithinRegularWindow(DateTime.now())) ...[
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        margin: const EdgeInsets.only(bottom: 12),
+                        decoration: BoxDecoration(
+                          color: Colors.orange.shade50,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.orange.shade200),
+                        ),
+                        child: const Row(
+                          children: [
+                            Icon(Icons.info_outline, color: Colors.orange, size: 16),
+                            SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                'Ngoài khung giờ làm việc chính thức. Vui lòng sử dụng chấm công tăng ca.',
+                                style: TextStyle(fontSize: 12, color: Colors.orange),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                     Row(
                       children: [
                         Expanded(
                           child: ElevatedButton(
-                            onPressed: isLoading
+                            onPressed: isLoading || (_shiftConfig != null && !_shiftConfig!.isWithinRegularWindow(DateTime.now()))
                                 ? null
                                 : () => _showMethodPicker(context, isCheckIn: true),
                             style: ElevatedButton.styleFrom(
@@ -406,7 +443,7 @@ class _HomeTabState extends State<_HomeTab> {
                         const SizedBox(width: 12),
                         Expanded(
                           child: ElevatedButton(
-                            onPressed: isLoading
+                            onPressed: isLoading || (_shiftConfig != null && !_shiftConfig!.isWithinRegularWindow(DateTime.now()))
                                 ? null
                                 : () => _showMethodPicker(context, isCheckIn: false),
                             style: ElevatedButton.styleFrom(
@@ -730,13 +767,34 @@ class _HomeTabState extends State<_HomeTab> {
     );
   }
 
-  /// Tính số phút làm việc theo business hours: sáng 8-12, chiều 13-17, max 480 phút (8h)
+  /// Tính số phút làm việc theo business hours (dùng shift config nếu có)
   int _calcBusinessMinutes(DateTime checkIn, DateTime endTime) {
     final y = checkIn.year, m = checkIn.month, d = checkIn.day;
-    final shiftStart = DateTime(y, m, d, 8, 0);
-    final lunchStart = DateTime(y, m, d, 12, 0);
-    final lunchEnd = DateTime(y, m, d, 13, 0);
-    final shiftEnd = DateTime(y, m, d, 17, 0);
+    final cfg = _shiftConfig;
+
+    // Parse giờ từ shift config hoặc dùng default
+    final startParts = (cfg?.startTime ?? '08:00').split(':');
+    final startH = int.tryParse(startParts[0]) ?? 8;
+    final startM = startParts.length > 1 ? (int.tryParse(startParts[1]) ?? 0) : 0;
+
+    final endParts = (cfg?.endTime ?? '17:00').split(':');
+    final endH = int.tryParse(endParts[0]) ?? 17;
+    final endM = endParts.length > 1 ? (int.tryParse(endParts[1]) ?? 0) : 0;
+
+    final lunchStartParts = (cfg?.morningEnd ?? '12:00').split(':');
+    final lunchStartH = int.tryParse(lunchStartParts[0]) ?? 12;
+    final lunchStartM = lunchStartParts.length > 1 ? (int.tryParse(lunchStartParts[1]) ?? 0) : 0;
+
+    final lunchEndParts = (cfg?.afternoonStart ?? '13:00').split(':');
+    final lunchEndH = int.tryParse(lunchEndParts[0]) ?? 13;
+    final lunchEndM = lunchEndParts.length > 1 ? (int.tryParse(lunchEndParts[1]) ?? 0) : 0;
+
+    final shiftStart = DateTime(y, m, d, startH, startM);
+    final lunchStart = DateTime(y, m, d, lunchStartH, lunchStartM);
+    final lunchEnd = DateTime(y, m, d, lunchEndH, lunchEndM);
+    final shiftEnd = DateTime(y, m, d, endH, endM);
+
+    final maxMinutes = ((cfg?.workHours ?? 8) * 60).round();
 
     // Clamp trong ca
     var effIn = checkIn.isBefore(shiftStart) ? shiftStart : checkIn;
@@ -754,7 +812,7 @@ class _HomeTabState extends State<_HomeTab> {
     if (effOut.isAfter(afternoonStart)) {
       total += effOut.difference(afternoonStart).inMinutes;
     }
-    return total > 480 ? 480 : total;
+    return total > maxMinutes ? maxMinutes : total;
   }
 
   String _getGreeting() {

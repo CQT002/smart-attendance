@@ -74,6 +74,7 @@ func (u *leaveUsecase) Create(ctx context.Context, req usecase.CreateLeaveReques
 	// Lấy thông tin user để có branch_id
 	user, err := u.userRepo.FindByID(ctx, req.UserID)
 	if err != nil {
+		slog.Error("failed to find user for leave request", "user_id", req.UserID, "error", err)
 		return nil, err
 	}
 
@@ -106,6 +107,7 @@ func (u *leaveUsecase) Create(ctx context.Context, req usecase.CreateLeaveReques
 		// 3. Ngày quá khứ — kiểm tra attendance log
 		attendLog, err := u.attendanceRepo.FindByUserAndDate(ctx, req.UserID, leaveDate)
 		if err != nil {
+			slog.Error("failed to find attendance for leave validation", "user_id", req.UserID, "leave_date", leaveDate, "error", err)
 			return nil, err
 		}
 
@@ -172,9 +174,11 @@ func (u *leaveUsecase) Create(ctx context.Context, req usecase.CreateLeaveReques
 	// 6. Kiểm tra chưa có yêu cầu trùng
 	existing, err := u.leaveRepo.FindByUserAndDate(ctx, req.UserID, leaveDate)
 	if err != nil {
+		slog.Error("failed to check existing leave request", "user_id", req.UserID, "leave_date", leaveDate, "error", err)
 		return nil, err
 	}
 	if existing != nil {
+		logger.Warn("leave request already exists for date", "existing_id", existing.ID)
 		return nil, apperrors.ErrLeaveAlreadyExists
 	}
 
@@ -192,6 +196,7 @@ func (u *leaveUsecase) Create(ctx context.Context, req usecase.CreateLeaveReques
 	}
 
 	if err := u.leaveRepo.Create(ctx, leave); err != nil {
+		slog.Error("failed to create leave request", "user_id", req.UserID, "error", err)
 		return nil, err
 	}
 
@@ -222,6 +227,7 @@ func (u *leaveUsecase) Process(ctx context.Context, req usecase.ProcessLeaveRequ
 	// Tìm leave request
 	leave, err := u.leaveRepo.FindByID(ctx, req.LeaveID)
 	if err != nil {
+		slog.Error("failed to find leave request for processing", "leave_id", req.LeaveID, "error", err)
 		return nil, err
 	}
 
@@ -251,6 +257,7 @@ func (u *leaveUsecase) Process(ctx context.Context, req usecase.ProcessLeaveRequ
 		// Kiểm tra số ngày phép còn đủ trước khi duyệt
 		leaveUser, err := u.userRepo.FindByID(ctx, leave.UserID)
 		if err != nil {
+			slog.Error("failed to find user for leave approval", "user_id", leave.UserID, "error", err)
 			return nil, err
 		}
 		if leaveUser.LeaveBalance < cost {
@@ -335,6 +342,7 @@ func (u *leaveUsecase) Process(ctx context.Context, req usecase.ProcessLeaveRequ
 		leave.ManagerNote = req.ManagerNote
 
 		if err := u.leaveRepo.Update(ctx, leave); err != nil {
+			slog.Error("failed to update leave rejection", "leave_id", leave.ID, "error", err)
 			return nil, err
 		}
 
@@ -374,6 +382,7 @@ func (u *leaveUsecase) GetPendingApprovals(ctx context.Context, branchID *uint, 
 	}
 	corrections, corrTotal, err := u.correctionRepo.FindAll(ctx, corrFilter)
 	if err != nil {
+		slog.Error("failed to find pending corrections", "error", err)
 		return nil, 0, err
 	}
 
@@ -386,6 +395,7 @@ func (u *leaveUsecase) GetPendingApprovals(ctx context.Context, branchID *uint, 
 	}
 	leaves, leaveTotal, err := u.leaveRepo.FindAll(ctx, leaveFilter)
 	if err != nil {
+		slog.Error("failed to find pending leaves", "error", err)
 		return nil, 0, err
 	}
 
@@ -398,6 +408,7 @@ func (u *leaveUsecase) GetPendingApprovals(ctx context.Context, branchID *uint, 
 	}
 	overtimes, otTotal, err := u.overtimeRepo.FindAll(ctx, otFilter)
 	if err != nil {
+		slog.Error("failed to find pending overtimes", "error", err)
 		return nil, 0, err
 	}
 
@@ -490,16 +501,19 @@ func (u *leaveUsecase) GetApprovals(ctx context.Context, branchID *uint, status 
 
 	corrections, corrTotal, err := u.correctionRepo.FindAll(ctx, corrFilter)
 	if err != nil {
+		slog.Error("failed to find corrections for approvals", "error", err)
 		return nil, 0, err
 	}
 
 	leaves, leaveTotal, err := u.leaveRepo.FindAll(ctx, leaveFilter)
 	if err != nil {
+		slog.Error("failed to find leaves for approvals", "error", err)
 		return nil, 0, err
 	}
 
 	overtimes, otTotal, err := u.overtimeRepo.FindAll(ctx, otFilter)
 	if err != nil {
+		slog.Error("failed to find overtimes for approvals", "error", err)
 		return nil, 0, err
 	}
 
@@ -638,6 +652,7 @@ func (u *leaveUsecase) BatchApprove(ctx context.Context, processedByID uint, bra
 	}
 	leaves, _, err := u.leaveRepo.FindAll(ctx, filter)
 	if err != nil {
+		slog.Error("failed to find pending leaves for batch approve", "error", err)
 		return 0, err
 	}
 

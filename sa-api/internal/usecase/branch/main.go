@@ -3,6 +3,7 @@ package branch
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -36,6 +37,7 @@ func (u *branchUsecase) Create(ctx context.Context, req usecase.CreateBranchRequ
 	}
 
 	if err := u.branchRepo.Create(ctx, branch); err != nil {
+		slog.Error("failed to create branch", "code", branch.Code, "error", err)
 		return nil, err
 	}
 
@@ -61,6 +63,7 @@ func (u *branchUsecase) Create(ctx context.Context, req usecase.CreateBranchRequ
 func (u *branchUsecase) Update(ctx context.Context, id uint, req usecase.UpdateBranchRequest) (*entity.Branch, error) {
 	branch, err := u.branchRepo.FindByID(ctx, id)
 	if err != nil {
+		slog.Error("failed to find branch for update", "branch_id", id, "error", err)
 		return nil, err
 	}
 
@@ -72,6 +75,7 @@ func (u *branchUsecase) Update(ctx context.Context, id uint, req usecase.UpdateB
 	branch.Email = req.Email
 
 	if err := u.branchRepo.Update(ctx, branch); err != nil {
+		slog.Error("failed to update branch", "branch_id", id, "error", err)
 		return nil, err
 	}
 
@@ -106,6 +110,7 @@ func (u *branchUsecase) Update(ctx context.Context, id uint, req usecase.UpdateB
 
 func (u *branchUsecase) Delete(ctx context.Context, id uint) error {
 	if err := u.branchRepo.Delete(ctx, id); err != nil {
+		slog.Error("failed to delete branch", "branch_id", id, "error", err)
 		return err
 	}
 	u.cache.Delete(ctx, cache.BuildKey(cache.KeyPrefixBranch, fmt.Sprintf("%d", id)))
@@ -124,6 +129,7 @@ func (u *branchUsecase) GetByID(ctx context.Context, id uint) (*entity.Branch, e
 
 	branch, err := u.branchRepo.FindByID(ctx, id)
 	if err != nil {
+		slog.Error("failed to find branch", "branch_id", id, "error", err)
 		return nil, err
 	}
 
@@ -147,6 +153,7 @@ func (u *branchUsecase) GetActive(ctx context.Context) ([]*entity.Branch, error)
 
 	branches, err := u.branchRepo.FindActive(ctx)
 	if err != nil {
+		slog.Error("failed to find active branches", "error", err)
 		return nil, err
 	}
 

@@ -24,7 +24,11 @@ func (r *shiftRepository) Create(ctx context.Context, shift *entity.Shift) error
 }
 
 func (r *shiftRepository) Update(ctx context.Context, shift *entity.Shift) error {
-	return r.db.WithContext(ctx).Save(shift).Error
+	return r.db.WithContext(ctx).
+		Model(shift).
+		Select("*").
+		Omit("Branch", "CreatedAt").
+		Updates(shift).Error
 }
 
 func (r *shiftRepository) Delete(ctx context.Context, id uint) error {

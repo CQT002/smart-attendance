@@ -3,6 +3,7 @@ package report
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/hdbank/smart-attendance/internal/domain/repository"
@@ -50,6 +51,7 @@ func (u *reportUsecase) GetTodayBranchStats(ctx context.Context, filter usecase.
 
 	items, total, err := u.attendanceRepo.GetTodayStatsByBranch(ctx, filter.BranchID, filter.Search, filter.Page, filter.Limit)
 	if err != nil {
+		slog.Error("failed to get today branch stats", "error", err)
 		return nil, 0, err
 	}
 
@@ -74,6 +76,7 @@ func (u *reportUsecase) GetTodayEmployeeDetails(ctx context.Context, filter repo
 
 	items, total, err := u.attendanceRepo.GetTodayEmployeeDetails(ctx, filter)
 	if err != nil {
+		slog.Error("failed to get today employee details", "error", err)
 		return nil, 0, err
 	}
 
@@ -92,6 +95,7 @@ func (u *reportUsecase) GetDashboardStats(ctx context.Context) (*usecase.Dashboa
 
 	stats, err := u.computeDashboardStats(ctx, nil)
 	if err != nil {
+		slog.Error("failed to compute dashboard stats", "error", err)
 		return nil, err
 	}
 
@@ -109,6 +113,7 @@ func (u *reportUsecase) GetBranchDashboard(ctx context.Context, branchID uint) (
 
 	stats, err := u.computeDashboardStats(ctx, &branchID)
 	if err != nil {
+		slog.Error("failed to compute branch dashboard stats", "branch_id", branchID, "error", err)
 		return nil, err
 	}
 
@@ -121,6 +126,7 @@ func (u *reportUsecase) computeDashboardStats(ctx context.Context, branchID *uin
 	// Lấy thống kê hôm nay per branch — SQL đã JOIN users WHERE role='employee'
 	summaries, _, err := u.attendanceRepo.GetTodayStatsByBranch(ctx, branchID, "", 1, 1000)
 	if err != nil {
+		slog.Error("failed to get today stats by branch for dashboard", "error", err)
 		return nil, err
 	}
 
@@ -166,6 +172,7 @@ func (u *reportUsecase) GetAttendanceReport(ctx context.Context, filter usecase.
 	if filter.BranchID != nil {
 		results, err := u.attendanceRepo.GetBranchSummary(ctx, *filter.BranchID, from, to)
 		if err != nil {
+			slog.Error("failed to get attendance report", "branch_id", *filter.BranchID, "error", err)
 			return nil, 0, err
 		}
 		// Phân trang thủ công trên kết quả aggregate
@@ -190,6 +197,7 @@ func (u *reportUsecase) GetBranchReport(ctx context.Context, filter usecase.Repo
 
 	branches, err := u.branchRepo.FindActive(ctx)
 	if err != nil {
+		slog.Error("failed to find active branches for report", "error", err)
 		return nil, err
 	}
 
@@ -202,6 +210,7 @@ func (u *reportUsecase) GetBranchReport(ctx context.Context, filter usecase.Repo
 
 		summaries, err := u.attendanceRepo.GetBranchSummary(ctx, branch.ID, from, to)
 		if err != nil {
+			slog.Error("failed to get branch summary for report", "branch_id", branch.ID, "branch_code", branch.Code, "error", err)
 			continue
 		}
 
@@ -245,11 +254,13 @@ func (u *reportUsecase) GetBranchReport(ctx context.Context, filter usecase.Repo
 func (u *reportUsecase) GetUserReport(ctx context.Context, userID uint, from, to time.Time) (*repository.UserAttendanceSummary, error) {
 	user, err := u.userRepo.FindByID(ctx, userID)
 	if err != nil {
+		slog.Error("failed to find user for report", "user_id", userID, "error", err)
 		return nil, err
 	}
 
 	summary, err := u.attendanceRepo.GetSummary(ctx, userID, from, to)
 	if err != nil {
+		slog.Error("failed to get attendance summary for report", "user_id", userID, "error", err)
 		return nil, err
 	}
 

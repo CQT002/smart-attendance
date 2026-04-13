@@ -404,5 +404,52 @@ func GetMigrations() []*gormigrate.Migration {
 				return nil
 			},
 		},
+		// ── 014: Thêm regular_end_day, regular_end_time vào shifts ──
+		// Cấu hình khung giờ làm việc chính thức: T2→RegularEndDay tại RegularEndTime
+		{
+			ID: "20260408000001",
+			Migrate: func(tx *gorm.DB) error {
+				sqls := []string{
+					"ALTER TABLE shifts ADD COLUMN IF NOT EXISTS regular_end_day INTEGER NOT NULL DEFAULT 6",
+					"ALTER TABLE shifts ADD COLUMN IF NOT EXISTS regular_end_time VARCHAR(5) NOT NULL DEFAULT '12:00'",
+				}
+				for _, sql := range sqls {
+					if err := tx.Exec(sql).Error; err != nil {
+						return err
+					}
+				}
+				return nil
+			},
+			Rollback: func(tx *gorm.DB) error {
+				tx.Exec("ALTER TABLE shifts DROP COLUMN IF EXISTS regular_end_day")
+				tx.Exec("ALTER TABLE shifts DROP COLUMN IF EXISTS regular_end_time")
+				return nil
+			},
+		},
+
+		// ── 015: Fix shift records có OT fields = 0 (seeded trước migration 013) ──
+		{
+			ID: "20260409000001",
+			Migrate: func(tx *gorm.DB) error {
+				sqls := []string{
+					"UPDATE shifts SET morning_end = '12:00' WHERE morning_end IS NULL OR morning_end = ''",
+					"UPDATE shifts SET afternoon_start = '13:00' WHERE afternoon_start IS NULL OR afternoon_start = ''",
+					"UPDATE shifts SET ot_min_checkin_hour = 17 WHERE ot_min_checkin_hour = 0",
+					"UPDATE shifts SET ot_start_hour = 18 WHERE ot_start_hour = 0",
+					"UPDATE shifts SET ot_end_hour = 22 WHERE ot_end_hour = 0",
+					"UPDATE shifts SET regular_end_day = 6 WHERE regular_end_day = 0 AND regular_end_time = '12:00'",
+					"UPDATE shifts SET regular_end_time = '12:00' WHERE regular_end_time IS NULL OR regular_end_time = ''",
+				}
+				for _, sql := range sqls {
+					if err := tx.Exec(sql).Error; err != nil {
+						return err
+					}
+				}
+				return nil
+			},
+			Rollback: func(tx *gorm.DB) error {
+				return nil // data fix, không rollback
+			},
+		},
 	}
 }

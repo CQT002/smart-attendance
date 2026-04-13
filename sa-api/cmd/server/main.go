@@ -122,6 +122,7 @@ func main() {
 	adminOvertimeH := handlerAdmin.NewOvertimeHandler(overtimeUC)
 	reportH := handlerAdmin.NewReportHandler(reportUC)
 	wifiConfigH := handlerAdmin.NewWiFiConfigHandler(wifiConfigRepo)
+	shiftH := handlerAdmin.NewShiftHandler(shiftRepo)
 
 	// ── 8. Start background schedulers (DB-driven) ──
 	schedulerMgr := scheduler.NewManager(schedulerRepo)
@@ -156,6 +157,7 @@ func main() {
 		AdminOvertimeHandler:   adminOvertimeH,
 		ReportHandler:          reportH,
 		WiFiConfigHandler:      wifiConfigH,
+		ShiftHandler:           shiftH,
 		Cache:                  redisCache,
 		JWTSecret:              cfg.JWT.Secret,
 	})

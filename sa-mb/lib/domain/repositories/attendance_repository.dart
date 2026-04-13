@@ -1,4 +1,5 @@
 import '../../data/models/attendance_model.dart';
+import '../../data/models/shift_config_model.dart';
 
 abstract class AttendanceRepository {
   Future<AttendanceModel> checkIn({
@@ -32,4 +33,6 @@ abstract class AttendanceRepository {
     int page = 1,
     int limit = 20,
   });
+
+  Future<ShiftConfigModel?> getShiftConfig();
 }
