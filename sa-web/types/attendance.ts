@@ -56,6 +56,8 @@ export interface AttendanceSummary {
   early_leave_count: number;
   half_day_count: number;
   absent_count: number;
+  leave_count: number;
+  incomplete_count: number;
   total_work_hours: number;
   total_overtime: number;
   attendance_rate: number;
@@ -67,6 +69,7 @@ export interface AttendanceFilter {
   branch_id?: number;
   department?: string;
   status?: AttendanceStatus;
+  incomplete?: string; // "checkin" | "checkout" | "any"
   search?: string;
   date_from?: string;
   date_to?: string;

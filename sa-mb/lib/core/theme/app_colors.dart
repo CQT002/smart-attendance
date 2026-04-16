@@ -20,7 +20,8 @@ class AppColors {
   static const Color calendarIncomplete = Color(0xFFFB8C00); // Cam — thiếu check-in/out hoặc < 8h
   static const Color calendarAbsent = Color(0xFFE53935);     // Đỏ — chưa chấm công
   static const Color calendarLeave = Color(0xFF1E88E5);      // Xanh dương — nghỉ có phép
-  static const Color calendarDayOff = Color(0xFFBDBDBD);     // Xám — cuối tuần/ngày lễ
+  static const Color calendarDayOff = Color(0xFFBDBDBD);     // Xám — cuối tuần
+  static const Color calendarHoliday = Color(0xFF7E57C2);    // Tím — ngày lễ (phân biệt rõ với calendarAbsent đỏ)
 
   // Attendance status
   static const Color statusPresent = Color(0xFF43A047);

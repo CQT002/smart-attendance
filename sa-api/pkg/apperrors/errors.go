@@ -112,6 +112,16 @@ var (
 		"Ngoài khung giờ làm việc chính thức. Vui lòng sử dụng chấm công tăng ca.")
 )
 
+// Holiday errors
+var (
+	ErrHolidayAlreadyExists     = New(http.StatusConflict, "HOLIDAY_ALREADY_EXISTS", "Ngày này đã được cấu hình là ngày lễ")
+	ErrHolidayNotFound          = New(http.StatusNotFound, "HOLIDAY_NOT_FOUND", "Không tìm thấy ngày lễ")
+	ErrHolidayInvalidDate       = New(http.StatusBadRequest, "HOLIDAY_INVALID_DATE", "Ngày lễ không hợp lệ (định dạng YYYY-MM-DD)")
+	ErrHolidayInvalidCoefficient = New(http.StatusBadRequest, "HOLIDAY_INVALID_COEFFICIENT", "Hệ số lương phải > 0 và ≤ 10")
+	ErrHolidayInvalidType       = New(http.StatusBadRequest, "HOLIDAY_INVALID_TYPE", "Loại ngày lễ không hợp lệ (national/company)")
+	ErrHolidayCompensateMissing = New(http.StatusBadRequest, "HOLIDAY_COMPENSATE_MISSING", "Nghỉ bù phải chỉ định ngày lễ gốc (compensate_for)")
+)
+
 // Overtime errors
 var (
 	ErrOvertimeCheckInTooEarly   = New(http.StatusBadRequest, "OT_CHECKIN_TOO_EARLY", "Chỉ được check-in tăng ca sau 17:00")

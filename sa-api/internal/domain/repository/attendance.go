@@ -13,6 +13,7 @@ type AttendanceFilter struct {
 	BranchID   *uint
 	Department string
 	Status     entity.AttendanceStatus
+	Incomplete string // "checkin" | "checkout" | "any" — filter thiếu check-in/out
 	DateFrom   *time.Time
 	DateTo     *time.Time
 	Page       int
@@ -21,16 +22,18 @@ type AttendanceFilter struct {
 
 // AttendanceSummary tổng hợp thống kê chấm công
 type AttendanceSummary struct {
-	TotalDays      int     `json:"total_days"`
-	PresentCount   int     `json:"present_count"`
-	LateCount      int     `json:"late_count"`
-	EarlyLeaveCount int    `json:"early_leave_count"`
-	HalfDayCount   int     `json:"half_day_count"`
-	AbsentCount    int     `json:"absent_count"`
-	TotalWorkHours float64 `json:"total_work_hours"`
-	TotalOvertime  float64 `json:"total_overtime"`
-	AttendanceRate float64 `json:"attendance_rate"`
-	OnTimeRate     float64 `json:"on_time_rate"`
+	TotalDays       int     `json:"total_days"`
+	PresentCount    int     `json:"present_count"`
+	LateCount       int     `json:"late_count"`
+	EarlyLeaveCount int     `json:"early_leave_count"`
+	HalfDayCount    int     `json:"half_day_count"`
+	AbsentCount     int     `json:"absent_count"`
+	LeaveCount      int     `json:"leave_count"`
+	IncompleteCount int     `json:"incomplete_count"`
+	TotalWorkHours  float64 `json:"total_work_hours"`
+	TotalOvertime   float64 `json:"total_overtime"`
+	AttendanceRate  float64 `json:"attendance_rate"`
+	OnTimeRate      float64 `json:"on_time_rate"`
 }
 
 // AttendanceRepository định nghĩa contract cho thao tác dữ liệu chấm công
@@ -61,6 +64,10 @@ type AttendanceRepository interface {
 
 	// CountSuspicious đếm số bản ghi nghi ngờ gian lận theo user
 	CountSuspicious(ctx context.Context, userID uint, from time.Time) (int64, error)
+
+	// FindAbsentDays lấy danh sách ngày vắng mặt (user active không có attendance_log) trong khoảng thời gian.
+	// Trả về virtual AttendanceLog (status=absent, work_hours=0) + total count cho pagination.
+	FindAbsentDays(ctx context.Context, filter AttendanceFilter) ([]*entity.AttendanceLog, int64, error)
 
 	// GetTodayStatsByBranch lấy thống kê chấm công hôm nay theo từng chi nhánh, có phân trang
 	// branchID = nil → tất cả chi nhánh active (dành cho admin tổng)

@@ -44,12 +44,12 @@ class SecurityService {
 
       for (final interface_ in interfaces) {
         final name = interface_.name.toLowerCase();
-        // Common VPN interface names
-        if (name.contains('tun') ||
-            name.contains('tap') ||
+        // iOS/macOS luôn có utun0-utunN cho system services (iCloud Private Relay, Hotspot...)
+        // → chỉ flag khi interface là VPN thật (tun/tap/ppp/ipsec), bỏ qua utun (Apple system)
+        if (name.startsWith('tun') && !name.startsWith('utun')) return true;
+        if (name.contains('tap') ||
             name.contains('ppp') ||
-            name.contains('ipsec') ||
-            name.contains('utun')) {
+            name.startsWith('ipsec')) {
           return true;
         }
       }

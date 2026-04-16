@@ -175,7 +175,7 @@ func (u *attendanceUsecase) CheckIn(ctx context.Context, req usecase.CheckInRequ
 
 		// Tính lại work hours nếu đã có checkout — dùng business hours (trừ nghỉ trưa, cap 8h)
 		if existing.CheckOutTime != nil {
-			wh, _ := calculateBusinessWorkHours(now, *existing.CheckOutTime, shift)
+			wh, _ := CalculateBusinessWorkHours(now, *existing.CheckOutTime, shift)
 			existing.WorkHours = wh
 		}
 
@@ -342,14 +342,14 @@ func (u *attendanceUsecase) CheckOut(ctx context.Context, req usecase.CheckOutRe
 			if attendLog.ShiftID != nil {
 				shift, err := u.shiftRepo.FindByID(ctx, *attendLog.ShiftID)
 				if err == nil && shift != nil {
-					wh, _ := calculateBusinessWorkHours(*attendLog.CheckInTime, now, shift)
+					wh, _ := CalculateBusinessWorkHours(*attendLog.CheckInTime, now, shift)
 					attendLog.WorkHours = wh
 					attendLog.Status = u.calculateCheckOutStatus(attendLog.Status, now, shift, wh)
 				}
 			} else {
 				// Fallback khi không có shift — dùng default 8h shift
 				defaultShift := &entity.Shift{StartTime: "08:00", EndTime: "17:00", WorkHours: 8, MorningEnd: "12:00", AfternoonStart: "13:00"}
-				wh, _ := calculateBusinessWorkHours(*attendLog.CheckInTime, now, defaultShift)
+				wh, _ := CalculateBusinessWorkHours(*attendLog.CheckInTime, now, defaultShift)
 				attendLog.WorkHours = wh
 			}
 		}
@@ -377,6 +377,9 @@ func (u *attendanceUsecase) GetByID(ctx context.Context, id uint) (*entity.Atten
 }
 
 func (u *attendanceUsecase) GetList(ctx context.Context, filter repository.AttendanceFilter) ([]*entity.AttendanceLog, int64, error) {
+	if filter.Status == entity.StatusAbsent {
+		return u.attendanceRepo.FindAbsentDays(ctx, filter)
+	}
 	return u.attendanceRepo.FindAll(ctx, filter)
 }
 
@@ -615,7 +618,7 @@ func (u *attendanceUsecase) calculateCheckOutStatus(current entity.AttendanceSta
 	return current
 }
 
-// calculateBusinessWorkHours tính giờ làm thực tế theo business rules:
+// CalculateBusinessWorkHours tính giờ làm thực tế theo business rules:
 //   - Buổi sáng: max(checkIn, shiftStart) → min(checkOut, 12:00), tối đa 4h
 //   - Nghỉ trưa: 12:00 → 13:00 = không tính
 //   - Buổi chiều: max(checkIn, 13:00) → min(checkOut, shiftEnd), tối đa 4h
@@ -623,7 +626,7 @@ func (u *attendanceUsecase) calculateCheckOutStatus(current entity.AttendanceSta
 //   - Overtime luôn = 0 (tính năng tăng ca sẽ có column riêng: OT check-in/out/hours)
 //
 // Ví dụ: checkIn 7:50, checkOut 20:00 → sáng 4h + chiều 4h = 8h, overtime = 0
-func calculateBusinessWorkHours(checkIn, checkOut time.Time, shift *entity.Shift) (float64, float64) {
+func CalculateBusinessWorkHours(checkIn, checkOut time.Time, shift *entity.Shift) (float64, float64) {
 	checkIn = checkIn.In(utils.HCM)
 	checkOut = checkOut.In(utils.HCM)
 

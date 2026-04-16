@@ -28,6 +28,7 @@ import {
 import { Search, TrendingUp } from "lucide-react";
 import { ReportFilter, ReportPeriod } from "@/types/report";
 import { formatPercent, formatHours } from "@/lib/utils";
+import { BranchAutocomplete } from "@/components/shared/branch-autocomplete";
 import {
   BarChart,
   Bar,
@@ -144,28 +145,13 @@ export default function ReportsPage() {
           )}
 
           {isAdmin ? (
-            <Select
-              value={filter.branch_id?.toString() ?? "all"}
-              onValueChange={(v) =>
-                setFilter((f) => ({
-                  ...f,
-                  branch_id: v === "all" ? undefined : Number(v),
-                  page: 1,
-                }))
-              }
-            >
-              <SelectTrigger className="w-44">
-                <SelectValue placeholder="Chi nhánh" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Tất cả chi nhánh</SelectItem>
-                {branches?.map((b) => (
-                  <SelectItem key={b.id} value={b.id.toString()}>
-                    {b.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <BranchAutocomplete
+              branches={branches}
+              value={filter.branch_id}
+              onChange={(id) => setFilter((f) => ({ ...f, branch_id: id, page: 1 }))}
+              placeholder="Tìm kiếm chi nhánh"
+              className="w-64"
+            />
           ) : (
             <Input
               value={branches?.find((b) => b.id === currentUser?.branch_id)?.name ?? "Chi nhánh của tôi"}
@@ -173,15 +159,6 @@ export default function ReportsPage() {
               className="w-44"
             />
           )}
-
-          <Input
-            placeholder="Phòng ban"
-            className="w-40"
-            value={filter.department ?? ""}
-            onChange={(e) =>
-              setFilter((f) => ({ ...f, department: e.target.value || undefined, page: 1 }))
-            }
-          />
 
           <Button onClick={applyFilter}>
             <Search className="h-4 w-4 mr-1" />
@@ -244,11 +221,12 @@ export default function ReportsPage() {
                     <TableHeader>
                       <TableRow>
                         <TableHead>Nhân viên</TableHead>
-                        <TableHead>Chi nhánh</TableHead>
+                        <TableHead>{isAdmin ? "Chi nhánh" : "Phòng ban"}</TableHead>
                         <TableHead>Ngày công</TableHead>
                         <TableHead>Đúng giờ</TableHead>
                         <TableHead>Đi trễ - Về sớm</TableHead>
-                        <TableHead>Vắng</TableHead>
+                        <TableHead>Nghỉ phép</TableHead>
+                        <TableHead>Thiếu</TableHead>
                         <TableHead>Giờ làm</TableHead>
                         <TableHead>Chuyên cần</TableHead>
                       </TableRow>
@@ -263,12 +241,20 @@ export default function ReportsPage() {
                             </div>
                           </TableCell>
                           <TableCell className="text-sm">
-                            {r.department || r.user?.branch?.name || "—"}
+                            {isAdmin
+                              ? (() => {
+                                  const b = branches?.find((x) => x.id === filter.branch_id);
+                                  return b ? `${b.name} (${b.code})` : r.user?.branch?.name || "—";
+                                })()
+                              : r.department || r.user?.department || "—"}
                           </TableCell>
-                          <TableCell className="text-sm">{r.present_count + r.late_count}/{r.total_days}</TableCell>
+                          <TableCell className="text-sm">
+                            {r.present_count + r.late_count + r.early_leave_count + r.half_day_count + (r.leave_count ?? 0)}/{r.total_days}
+                          </TableCell>
                           <TableCell className="text-sm text-green-600">{r.present_count}</TableCell>
-                          <TableCell className="text-sm text-yellow-600">{r.late_count}</TableCell>
-                          <TableCell className="text-sm text-red-600">{r.absent_count}</TableCell>
+                          <TableCell className="text-sm text-yellow-600">{r.late_count + r.early_leave_count}</TableCell>
+                          <TableCell className="text-sm text-blue-600">{r.leave_count ?? 0}</TableCell>
+                          <TableCell className="text-sm text-orange-600">{r.incomplete_count ?? 0}</TableCell>
                           <TableCell className="text-sm">{formatHours(r.total_work_hours)}</TableCell>
                           <TableCell>
                             <RateCell value={r.attendance_rate} />
@@ -277,7 +263,7 @@ export default function ReportsPage() {
                       ))}
                       {empReport?.data.length === 0 && (
                         <TableRow>
-                          <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+                          <TableCell colSpan={10} className="text-center py-8 text-muted-foreground">
                             Không có dữ liệu
                           </TableCell>
                         </TableRow>

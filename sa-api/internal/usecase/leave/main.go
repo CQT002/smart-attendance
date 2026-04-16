@@ -283,16 +283,24 @@ func (u *leaveUsecase) Process(ctx context.Context, req usecase.ProcessLeaveRequ
 			checkIn := time.Date(leave.LeaveDate.Year(), leave.LeaveDate.Month(), leave.LeaveDate.Day(), fromH, fromM, 0, 0, utils.HCM)
 			checkOut := time.Date(leave.LeaveDate.Year(), leave.LeaveDate.Month(), leave.LeaveDate.Day(), toH, toM, 0, 0, utils.HCM)
 
+			// Work_hours theo loại nghỉ:
+			//   - full_day  → trọn ca (vd 8h)
+			//   - half_day  → nửa ca (vd 4h)
+			leaveWorkHours := shift.WorkHours * cost
 			if findErr != nil && findErr == gorm.ErrRecordNotFound {
 				// Không có log (vắng mặt hoặc ngày tương lai) → tạo mới với status=leave
+				status := entity.StatusLeave
+				if leave.LeaveType != entity.LeaveTypeFullDay {
+					status = entity.StatusHalfDayLeave
+				}
 				newLog := entity.AttendanceLog{
 					UserID:       leave.UserID,
 					BranchID:     leave.BranchID,
 					Date:         leave.LeaveDate,
 					CheckInTime:  &checkIn,
 					CheckOutTime: &checkOut,
-					Status:       entity.StatusLeave,
-					WorkHours:    shift.WorkHours,
+					Status:       status,
+					WorkHours:    leaveWorkHours,
 					Note:         "Nghỉ phép - " + leave.Description,
 				}
 				if shift.ID != 0 {
@@ -302,7 +310,8 @@ func (u *leaveUsecase) Process(ctx context.Context, req usecase.ProcessLeaveRequ
 					return err
 				}
 			} else if findErr == nil {
-				// Có log (half_day) → cập nhật status thành half_day_leave, work_hours = full shift
+				// Có log (half_day) → user đã đi làm nửa ngày, nay xin nốt nửa kia
+				// → tổng work_hours = nửa ca đã làm + nửa ca nghỉ phép = full shift
 				updates := map[string]interface{}{
 					"status":     entity.StatusHalfDayLeave,
 					"work_hours": shift.WorkHours,

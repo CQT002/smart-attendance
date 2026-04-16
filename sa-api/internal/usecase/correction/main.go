@@ -10,6 +10,7 @@ import (
 	"github.com/hdbank/smart-attendance/internal/domain/entity"
 	"github.com/hdbank/smart-attendance/internal/domain/repository"
 	"github.com/hdbank/smart-attendance/internal/domain/usecase"
+	ucAttendance "github.com/hdbank/smart-attendance/internal/usecase/attendance"
 	"github.com/hdbank/smart-attendance/pkg/apperrors"
 	"github.com/hdbank/smart-attendance/pkg/utils"
 	"gorm.io/gorm"
@@ -381,6 +382,8 @@ func (u *correctionUsecase) processAttendanceCorrection(
 			updates["check_out_time"] = shiftEnd
 		}
 
+		// Tính work_hours theo cùng business rules với CheckOut bình thường:
+		// trừ giờ nghỉ trưa, clamp trong khung ca, cap tại shift.WorkHours
 		checkIn := shiftStart
 		checkOut := shiftEnd
 		switch correction.OriginalStatus {
@@ -393,11 +396,8 @@ func (u *correctionUsecase) processAttendanceCorrection(
 				checkIn = *attendLog.CheckInTime
 			}
 		}
-		workHours := checkOut.Sub(checkIn).Hours()
-		if workHours < 0 {
-			workHours = 0
-		}
-		updates["work_hours"] = float64(int(workHours*100)) / 100
+		workHours, _ := ucAttendance.CalculateBusinessWorkHours(checkIn, checkOut, shift)
+		updates["work_hours"] = workHours
 
 		if err := tx.Model(&entity.AttendanceLog{}).
 			Where("id = ?", *correction.AttendanceLogID).

@@ -8,6 +8,7 @@ import {
   Users,
   ClipboardList,
   ClipboardCheck,
+  CalendarDays,
   BarChart3,
   LogOut,
   ChevronLeft,
@@ -24,6 +25,7 @@ const navItems = [
   { href: "/users", label: "Nhân viên", icon: Users },
   { href: "/attendance", label: "Chấm công", icon: ClipboardList },
   { href: "/corrections", label: "Phê duyệt tổng hợp", icon: ClipboardCheck },
+  { href: "/holidays", label: "Ngày lễ", icon: CalendarDays },
   { href: "/reports", label: "Báo cáo", icon: BarChart3 },
 ];
 

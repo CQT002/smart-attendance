@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { Header } from "@/components/layout/header";
 import { useAttendanceLogs } from "@/hooks/use-attendance";
+import { useCurrentUser } from "@/hooks/use-auth";
+import { useActiveBranches } from "@/hooks/use-branches";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
@@ -32,13 +34,21 @@ import { formatDate, formatTime, formatHours } from "@/lib/utils";
 const STATUS_OPTIONS: { value: string; label: string }[] = [
   { value: "all", label: "Tất cả trạng thái" },
   { value: "present", label: "Đúng giờ" },
-  { value: "late", label: "Đi trễ" },
-  { value: "early_leave", label: "Về sớm" },
+  { value: "late_group", label: "Đi trễ - Về sớm" },
   { value: "absent", label: "Vắng mặt" },
-  { value: "half_day", label: "Nửa ngày" },
+  { value: "leave_group", label: "Nghỉ phép" },
+  { value: "incomplete:checkout", label: "Thiếu check-out" },
+  { value: "incomplete:checkin", label: "Thiếu check-in" },
 ];
 
 export default function AttendancePage() {
+  const { data: currentUser } = useCurrentUser();
+  const { data: branches } = useActiveBranches();
+  const isManager = currentUser?.role === "manager";
+  const managerBranchName = isManager
+    ? branches?.find((b) => b.id === currentUser?.branch_id)?.name ?? "Chi nhánh của tôi"
+    : "";
+
   const [filter, setFilter] = useState<AttendanceFilter>({ page: 1, limit: 10 });
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
@@ -57,7 +67,7 @@ export default function AttendancePage() {
   const resetFilter = () => {
     setDateFrom("");
     setDateTo("");
-    setFilter({ page: 1, limit: 10 });
+    setFilter({ page: 1, limit: 10, incomplete: undefined });
   };
 
   return (
@@ -84,27 +94,45 @@ export default function AttendancePage() {
               className="w-40"
             />
           </div>
-          <Input
-            placeholder="Tìm kiếm chi nhánh..."
-            value={filter.search ?? ""}
-            onChange={(e) =>
-              setFilter((f) => ({
-                ...f,
-                search: e.target.value || undefined,
-                page: 1,
-              }))
-            }
-            className="w-44"
-          />
+          {isManager ? (
+            <Input
+              value={managerBranchName}
+              disabled
+              className="w-52"
+            />
+          ) : (
+            <Input
+              placeholder="Tìm kiếm chi nhánh..."
+              value={filter.search ?? ""}
+              onChange={(e) =>
+                setFilter((f) => ({
+                  ...f,
+                  search: e.target.value || undefined,
+                  page: 1,
+                }))
+              }
+              className="w-52"
+            />
+          )}
           <Select
-            value={filter.status ?? "all"}
-            onValueChange={(v) =>
-              setFilter((f) => ({
-                ...f,
-                status: v === "all" ? undefined : (v as AttendanceStatus),
-                page: 1,
-              }))
-            }
+            value={filter.incomplete ? `incomplete:${filter.incomplete}` : (filter.status ?? "all")}
+            onValueChange={(v) => {
+              if (v.startsWith("incomplete:")) {
+                setFilter((f) => ({
+                  ...f,
+                  status: undefined,
+                  incomplete: v.split(":")[1],
+                  page: 1,
+                }));
+              } else {
+                setFilter((f) => ({
+                  ...f,
+                  status: v === "all" ? undefined : (v as AttendanceStatus),
+                  incomplete: undefined,
+                  page: 1,
+                }));
+              }
+            }}
           >
             <SelectTrigger className="w-44">
               <SelectValue placeholder="Trạng thái" />
@@ -193,7 +221,11 @@ export default function AttendancePage() {
                           {log.work_hours > 0 ? formatHours(log.work_hours) : "—"}
                         </TableCell>
                         <TableCell>
-                          <StatusBadge status={log.status} />
+                          <StatusBadge
+                            status={log.status}
+                            checkInTime={log.check_in_time}
+                            checkOutTime={log.check_out_time}
+                          />
                         </TableCell>
                         <TableCell>
                           {(log.is_fake_gps || log.is_vpn) ? (

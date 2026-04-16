@@ -43,4 +43,11 @@ class ApiConstants {
   // Unified approvals (manager/admin)
   static const String approvals = '$apiPrefix/admin/approvals';
   static const String pendingApprovals = '$apiPrefix/admin/approvals/pending';
+
+  // Holidays (employee)
+  static const String holidayCalendar = '$apiPrefix/holidays/calendar';
+  static const String attendanceSummary = '$apiPrefix/attendance/summary';
+
+  // Holidays (admin)
+  static const String adminHolidays = '$apiPrefix/admin/holidays';
 }

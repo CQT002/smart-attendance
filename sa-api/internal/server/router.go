@@ -20,6 +20,7 @@ type RouterDeps struct {
 	CorrectionHandler     *handlerUser.CorrectionHandler
 	LeaveHandler          *handlerUser.LeaveHandler
 	OvertimeHandler       *handlerUser.OvertimeHandler
+	HolidayHandler        *handlerUser.HolidayHandler
 	// Admin portal handlers
 	AdminAuthHandler       *handlerAdmin.AdminAuthHandler
 	UserHandler            *handlerAdmin.UserHandler
@@ -31,6 +32,7 @@ type RouterDeps struct {
 	ReportHandler          *handlerAdmin.ReportHandler
 	WiFiConfigHandler      *handlerAdmin.WiFiConfigHandler
 	ShiftHandler           *handlerAdmin.ShiftHandler
+	AdminHolidayHandler    *handlerAdmin.HolidayHandler
 
 	Cache     cache.Cache
 	JWTSecret string
@@ -87,6 +89,12 @@ func SetupRouter(e *echo.Echo, deps RouterDeps) {
 	leaves.POST("", deps.LeaveHandler.Create)
 	leaves.GET("", deps.LeaveHandler.GetMyList)
 	leaves.GET("/:id", deps.LeaveHandler.GetByID)
+
+	// ── Employee holiday routes (ngày lễ) ──
+	holidays := protected.Group("/holidays")
+	holidays.GET("/calendar", deps.HolidayHandler.GetCalendar)
+	// Báo cáo công kèm ngày lễ + hệ số lương
+	attend.GET("/summary", deps.HolidayHandler.GetSummary)
 
 	// ── Employee overtime routes (tăng ca) ──
 	overtime := protected.Group("/attendance/overtime")
@@ -184,6 +192,19 @@ func SetupRouter(e *echo.Echo, deps RouterDeps) {
 	wifiConfigs.PUT("/:id", deps.WiFiConfigHandler.Update,
 		middleware.RequireRole(entity.RoleAdmin))
 	wifiConfigs.DELETE("/:id", deps.WiFiConfigHandler.Delete,
+		middleware.RequireRole(entity.RoleAdmin))
+
+	// Admin - Holiday management
+	// GET: Admin + Manager (đọc)
+	// POST/PUT/DELETE: chỉ Admin
+	adminHolidays := adminGroup.Group("/holidays")
+	adminHolidays.GET("", deps.AdminHolidayHandler.GetList)
+	adminHolidays.GET("/:id", deps.AdminHolidayHandler.GetByID)
+	adminHolidays.POST("", deps.AdminHolidayHandler.Create,
+		middleware.RequireRole(entity.RoleAdmin))
+	adminHolidays.PUT("/:id", deps.AdminHolidayHandler.Update,
+		middleware.RequireRole(entity.RoleAdmin))
+	adminHolidays.DELETE("/:id", deps.AdminHolidayHandler.Delete,
 		middleware.RequireRole(entity.RoleAdmin))
 
 	// Admin - Reports

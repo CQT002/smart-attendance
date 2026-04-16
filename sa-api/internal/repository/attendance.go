@@ -83,7 +83,27 @@ func (r *attendanceRepository) FindAll(ctx context.Context, filter domainrepo.At
 		query = query.Where("branch_id = ?", *filter.BranchID)
 	}
 	if filter.Status != "" {
-		query = query.Where("status = ?", filter.Status)
+		switch filter.Status {
+		case "present":
+			// Đúng giờ: status=present VÀ phải có cả check-in + check-out
+			query = query.Where("status = 'present' AND check_in_time IS NOT NULL AND check_out_time IS NOT NULL")
+		case "late_group":
+			// Gom: đi trễ, về sớm, đi trễ về sớm, nửa ngày — chỉ records có đủ check-in + check-out
+			query = query.Where("status IN ('late', 'early_leave', 'late_early_leave', 'half_day') AND check_in_time IS NOT NULL AND check_out_time IS NOT NULL")
+		case "leave_group":
+			// Gom: nghỉ phép + nghỉ phép nửa ngày
+			query = query.Where("status IN ('leave', 'half_day_leave')")
+		default:
+			query = query.Where("status = ?", filter.Status)
+		}
+	}
+	switch filter.Incomplete {
+	case "checkin":
+		query = query.Where("check_in_time IS NULL AND check_out_time IS NOT NULL")
+	case "checkout":
+		query = query.Where("check_out_time IS NULL AND check_in_time IS NOT NULL")
+	case "any":
+		query = query.Where("(check_in_time IS NULL AND check_out_time IS NOT NULL) OR (check_out_time IS NULL AND check_in_time IS NOT NULL)")
 	}
 	if filter.DateFrom != nil {
 		query = query.Where("date >= ?", filter.DateFrom.Format("2006-01-02"))
@@ -115,6 +135,114 @@ func (r *attendanceRepository) FindAll(ctx context.Context, filter domainrepo.At
 	return logs, total, nil
 }
 
+// FindAbsentDays trả về virtual AttendanceLog cho những ngày user active không có attendance_log.
+// Dùng generate_series + LEFT JOIN, chỉ lấy ngày thường (T2-T6), loại ngày tương lai.
+func (r *attendanceRepository) FindAbsentDays(ctx context.Context, filter domainrepo.AttendanceFilter) ([]*entity.AttendanceLog, int64, error) {
+	// date range bắt buộc cho absent query
+	if filter.DateFrom == nil || filter.DateTo == nil {
+		now := utils.Now()
+		startOfMonth := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, utils.HCM)
+		if filter.DateFrom == nil {
+			filter.DateFrom = &startOfMonth
+		}
+		if filter.DateTo == nil {
+			today := utils.Today()
+			filter.DateTo = &today
+		}
+	}
+
+	// Không query ngày tương lai
+	today := utils.Today()
+	if filter.DateTo.After(today) {
+		filter.DateTo = &today
+	}
+
+	from := filter.DateFrom.Format("2006-01-02")
+	to := filter.DateTo.Format("2006-01-02")
+
+	// Build branch clause
+	branchClause := ""
+	baseArgs := []interface{}{from, to}
+	if filter.BranchID != nil {
+		branchClause = "AND u.branch_id = ?"
+		baseArgs = append(baseArgs, *filter.BranchID)
+	}
+
+	// Count query
+	countSQL := `
+		SELECT COUNT(*) FROM (
+			SELECT u.id, d.d::date
+			FROM users u
+			CROSS JOIN generate_series(?::date, ?::date, '1 day'::interval) AS d(d)
+			LEFT JOIN attendance_logs a
+				ON a.user_id = u.id AND a.date = d.d::date AND a.deleted_at IS NULL
+			WHERE u.is_active = true AND u.role = 'employee' AND u.deleted_at IS NULL
+				` + branchClause + `
+				AND a.id IS NULL
+				AND EXTRACT(DOW FROM d.d) NOT IN (0, 6)
+		) sub
+	`
+	var total int64
+	if err := r.db.WithContext(ctx).Raw(countSQL, baseArgs...).Scan(&total).Error; err != nil {
+		return nil, 0, apperrors.Wrap(err, 500, "DB_ERROR", "Lỗi đếm ngày vắng mặt")
+	}
+
+	if total == 0 {
+		return []*entity.AttendanceLog{}, 0, nil
+	}
+
+	// Data query
+	pgOffset := (filter.Page - 1) * filter.Limit
+	dataArgs := make([]interface{}, len(baseArgs))
+	copy(dataArgs, baseArgs)
+	dataArgs = append(dataArgs, filter.Limit, pgOffset)
+
+	type absentRow struct {
+		UserID     uint      `gorm:"column:user_id"`
+		UserName   string    `gorm:"column:user_name"`
+		EmpCode    string    `gorm:"column:employee_code"`
+		BranchID   uint      `gorm:"column:branch_id"`
+		BranchName string    `gorm:"column:branch_name"`
+		Date       time.Time `gorm:"column:date"`
+	}
+
+	dataSQL := `
+		SELECT u.id AS user_id, u.name AS user_name, u.employee_code,
+			   u.branch_id, b.name AS branch_name, d.d::date AS date
+		FROM users u
+		CROSS JOIN generate_series(?::date, ?::date, '1 day'::interval) AS d(d)
+		LEFT JOIN attendance_logs a
+			ON a.user_id = u.id AND a.date = d.d::date AND a.deleted_at IS NULL
+		LEFT JOIN branches b ON b.id = u.branch_id
+		WHERE u.is_active = true AND u.role = 'employee' AND u.deleted_at IS NULL
+			` + branchClause + `
+			AND a.id IS NULL
+			AND EXTRACT(DOW FROM d.d) NOT IN (0, 6)
+		ORDER BY d.d DESC, u.name
+		LIMIT ? OFFSET ?
+	`
+
+	var rows []absentRow
+	if err := r.db.WithContext(ctx).Raw(dataSQL, dataArgs...).Scan(&rows).Error; err != nil {
+		return nil, 0, apperrors.Wrap(err, 500, "DB_ERROR", "Lỗi truy vấn ngày vắng mặt")
+	}
+
+	// Convert to virtual AttendanceLog
+	logs := make([]*entity.AttendanceLog, 0, len(rows))
+	for _, row := range rows {
+		logs = append(logs, &entity.AttendanceLog{
+			UserID:   row.UserID,
+			User:     entity.User{ID: row.UserID, Name: row.UserName, EmployeeCode: row.EmpCode},
+			BranchID: row.BranchID,
+			Branch:   entity.Branch{Name: row.BranchName},
+			Date:     row.Date,
+			Status:   entity.StatusAbsent,
+		})
+	}
+
+	return logs, total, nil
+}
+
 // GetSummary tổng hợp thống kê chấm công dùng SQL aggregate - hiệu quả hơn load toàn bộ bản ghi
 func (r *attendanceRepository) GetSummary(ctx context.Context, userID uint, from, to time.Time) (*domainrepo.AttendanceSummary, error) {
 	type Result struct {
@@ -124,6 +252,8 @@ func (r *attendanceRepository) GetSummary(ctx context.Context, userID uint, from
 		EarlyLeaveCount int
 		HalfDayCount    int
 		AbsentCount     int
+		LeaveCount      int
+		IncompleteCount int
 		TotalWorkHours  float64
 		TotalOvertime   float64
 	}
@@ -132,11 +262,15 @@ func (r *attendanceRepository) GetSummary(ctx context.Context, userID uint, from
 	err := r.db.WithContext(ctx).Raw(`
 		SELECT
 			COUNT(*) as total_days,
-			COUNT(CASE WHEN status = 'present' THEN 1 END) as present_count,
+			COUNT(CASE WHEN status = 'present'
+				AND check_in_time IS NOT NULL AND check_out_time IS NOT NULL THEN 1 END) as present_count,
 			COUNT(CASE WHEN status IN ('late', 'late_early_leave') THEN 1 END) as late_count,
-			COUNT(CASE WHEN status IN ('early_leave') THEN 1 END) as early_leave_count,
+			COUNT(CASE WHEN status = 'early_leave' THEN 1 END) as early_leave_count,
 			COUNT(CASE WHEN status = 'half_day' THEN 1 END) as half_day_count,
 			COUNT(CASE WHEN status = 'absent' THEN 1 END) as absent_count,
+			COUNT(CASE WHEN status IN ('leave', 'half_day_leave') THEN 1 END) as leave_count,
+			COUNT(CASE WHEN status IN ('present','late','early_leave','late_early_leave','half_day')
+				AND (check_in_time IS NULL OR check_out_time IS NULL) THEN 1 END) as incomplete_count,
 			COALESCE(SUM(work_hours), 0) as total_work_hours,
 			COALESCE((SELECT SUM(ot.total_hours) FROM overtime_requests ot
 				WHERE ot.user_id = attendance_logs.user_id
@@ -151,13 +285,16 @@ func (r *attendanceRepository) GetSummary(ctx context.Context, userID uint, from
 		return nil, apperrors.Wrap(err, 500, "DB_ERROR", "Lỗi tổng hợp chấm công")
 	}
 
+	// Chuyên cần = (present đủ + late + leave) / total
+	// Đúng giờ = present đủ / (present đủ + late)
 	attendanceRate := float64(0)
 	onTimeRate := float64(0)
 	if result.TotalDays > 0 {
-		attendanceRate = float64(result.PresentCount+result.LateCount) / float64(result.TotalDays) * 100
-		total := result.PresentCount + result.LateCount
-		if total > 0 {
-			onTimeRate = float64(result.PresentCount) / float64(total) * 100
+		effective := result.PresentCount + result.LateCount + result.EarlyLeaveCount + result.HalfDayCount + result.LeaveCount
+		attendanceRate = float64(effective) / float64(result.TotalDays) * 100
+		checkedIn := result.PresentCount + result.LateCount + result.EarlyLeaveCount + result.HalfDayCount
+		if checkedIn > 0 {
+			onTimeRate = float64(result.PresentCount) / float64(checkedIn) * 100
 		}
 	}
 
@@ -168,6 +305,8 @@ func (r *attendanceRepository) GetSummary(ctx context.Context, userID uint, from
 		EarlyLeaveCount: result.EarlyLeaveCount,
 		HalfDayCount:    result.HalfDayCount,
 		AbsentCount:     result.AbsentCount,
+		LeaveCount:      result.LeaveCount,
+		IncompleteCount: result.IncompleteCount,
 		TotalWorkHours:  result.TotalWorkHours,
 		TotalOvertime:   result.TotalOvertime,
 		AttendanceRate:  attendanceRate,
@@ -186,25 +325,40 @@ func (r *attendanceRepository) GetBranchSummary(ctx context.Context, branchID ui
 			u.employee_code,
 			u.department,
 			COUNT(a.id) as total_days,
-			COUNT(CASE WHEN a.status = 'present' THEN 1 END) as present_count,
+			-- Đúng giờ: status=present VÀ phải có cả check_in + check_out (loại bỏ ngày thiếu)
+			COUNT(CASE WHEN a.status = 'present'
+				AND a.check_in_time IS NOT NULL AND a.check_out_time IS NOT NULL THEN 1 END) as present_count,
 			COUNT(CASE WHEN a.status IN ('late', 'late_early_leave') THEN 1 END) as late_count,
-			COUNT(CASE WHEN a.status IN ('early_leave') THEN 1 END) as early_leave_count,
+			COUNT(CASE WHEN a.status = 'early_leave' THEN 1 END) as early_leave_count,
 			COUNT(CASE WHEN a.status = 'half_day' THEN 1 END) as half_day_count,
 			COUNT(CASE WHEN a.status = 'absent' THEN 1 END) as absent_count,
+			-- Nghỉ phép (leave + half_day_leave)
+			COUNT(CASE WHEN a.status IN ('leave', 'half_day_leave') THEN 1 END) as leave_count,
+			-- Thiếu check-in/out (status present/late nhưng thiếu 1 đầu)
+			COUNT(CASE WHEN a.status IN ('present','late','early_leave','late_early_leave','half_day')
+				AND (a.check_in_time IS NULL OR a.check_out_time IS NULL) THEN 1 END) as incomplete_count,
 			COALESCE(SUM(a.work_hours), 0) as total_work_hours,
 			COALESCE((SELECT SUM(ot.total_hours) FROM overtime_requests ot
 				WHERE ot.user_id = u.id AND ot.date BETWEEN ? AND ?
 				AND ot.status = 'approved' AND ot.deleted_at IS NULL), 0) as total_overtime,
+			-- Chuyên cần = (có mặt đủ + trễ + nghỉ phép) / tổng ngày
 			CASE WHEN COUNT(a.id) > 0
 				THEN ROUND(
-					(COUNT(CASE WHEN a.status IN ('present','late','early_leave','late_early_leave','half_day') THEN 1 END)::numeric / COUNT(a.id)) * 100, 2
+					(COUNT(CASE WHEN a.status IN ('present','late','early_leave','late_early_leave','half_day')
+						AND a.check_in_time IS NOT NULL AND a.check_out_time IS NOT NULL THEN 1 END)
+					 + COUNT(CASE WHEN a.status IN ('leave', 'half_day_leave') THEN 1 END)
+					)::numeric / COUNT(a.id) * 100, 2
 				)
 				ELSE 0
 			END as attendance_rate,
-			CASE WHEN COUNT(CASE WHEN a.status IN ('present','late','early_leave','late_early_leave','half_day') THEN 1 END) > 0
+			-- Đúng giờ = present (có đủ) / (present đủ + late + early_leave + half_day)
+			CASE WHEN COUNT(CASE WHEN a.status IN ('present','late','early_leave','late_early_leave','half_day')
+					AND a.check_in_time IS NOT NULL AND a.check_out_time IS NOT NULL THEN 1 END) > 0
 				THEN ROUND(
-					(COUNT(CASE WHEN a.status = 'present' THEN 1 END)::numeric
-					/ COUNT(CASE WHEN a.status IN ('present','late','early_leave','late_early_leave','half_day') THEN 1 END)) * 100, 2
+					(COUNT(CASE WHEN a.status = 'present'
+						AND a.check_in_time IS NOT NULL AND a.check_out_time IS NOT NULL THEN 1 END)::numeric
+					/ COUNT(CASE WHEN a.status IN ('present','late','early_leave','late_early_leave','half_day')
+						AND a.check_in_time IS NOT NULL AND a.check_out_time IS NOT NULL THEN 1 END)) * 100, 2
 				)
 				ELSE 0
 			END as on_time_rate

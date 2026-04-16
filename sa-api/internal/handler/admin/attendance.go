@@ -60,6 +60,9 @@ func (h *AttendanceHandler) GetList(c echo.Context) error {
 	if v := c.QueryParam("status"); v != "" {
 		filter.Status = entity.AttendanceStatus(v)
 	}
+	if v := c.QueryParam("incomplete"); v != "" {
+		filter.Incomplete = v // "checkin" | "checkout" | "any"
+	}
 	if v := c.QueryParam("date_from"); v != "" {
 		t, err := utils.ParseDateHCM( v)
 		if err == nil {

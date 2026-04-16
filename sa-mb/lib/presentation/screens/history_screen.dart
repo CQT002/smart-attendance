@@ -5,9 +5,11 @@ import '../../core/theme/app_colors.dart';
 import '../../core/utils/date_utils.dart';
 import '../../data/models/attendance_model.dart';
 import '../../data/models/correction_model.dart';
+import '../../data/models/holiday_model.dart';
 import '../../data/models/leave_model.dart';
 import '../../data/models/overtime_model.dart';
 import '../../domain/repositories/correction_repository.dart';
+import '../../domain/repositories/holiday_repository.dart';
 import '../../domain/repositories/leave_repository.dart';
 import '../../domain/repositories/overtime_repository.dart';
 import '../blocs/attendance/attendance_bloc.dart';
@@ -36,6 +38,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
   Map<int, CorrectionModel> _correctionsByLogId = {}; // attendance_log_id → correction
   Map<String, LeaveModel> _leavesByDate = {}; // "yyyy-MM-dd" → leave
   Map<String, OvertimeModel> _overtimeByDate = {}; // "yyyy-MM-dd" → overtime
+  Map<String, HolidayModel> _holidaysByDate = {}; // "yyyy-MM-dd" → holiday
   bool _isLoadingHistory = false;
   final ScrollController _scrollController = ScrollController();
 
@@ -61,6 +64,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
     _loadCorrections();
     _loadLeaves();
     _loadOvertime();
+    _loadHolidays();
     setState(() {
       _selectedDayRecord = null;
       _selectedDay = null;
@@ -109,6 +113,23 @@ class _HistoryScreenState extends State<HistoryScreen> {
       });
     } catch (_) {
       // Fail silently — overtime info is optional
+    }
+  }
+
+  Future<void> _loadHolidays() async {
+    try {
+      final repo = context.read<HolidayRepository>();
+      // Load theo phạm vi năm của tháng đang xem để bao phủ navigation qua lại
+      final year = _currentMonth.year;
+      final from = '${year.toString().padLeft(4, '0')}-01-01';
+      final to = '${year.toString().padLeft(4, '0')}-12-31';
+      final holidays = await repo.getCalendar(dateFrom: from, dateTo: to);
+      if (!mounted) return;
+      setState(() {
+        _holidaysByDate = {for (final h in holidays) h.dateKey: h};
+      });
+    } catch (_) {
+      // Fail silently — hiển thị calendar không có badge ngày lễ
     }
   }
 
@@ -964,9 +985,19 @@ class _HistoryScreenState extends State<HistoryScreen> {
   }
 
   Color? _getDayColor(AttendanceModel? record, bool isFuture, bool isWeekend, bool isHoliday) {
-    if (isFuture) return null;
+    // Ngày lễ tương lai (T2-T6): vẫn hiển thị màu lễ để user biết trước
+    if (isFuture) {
+      if (isHoliday && !isWeekend) return AppColors.calendarHoliday;
+      return null;
+    }
+    // Ngày lễ trong quá khứ/hôm nay: có đi làm → xanh lá (đủ công), còn lại → tím (paid holiday)
+    if (isHoliday) {
+      if (record != null && record.hasCheckedIn) {
+        return AppColors.calendarPresent;
+      }
+      return AppColors.calendarHoliday;
+    }
     if (isWeekend && record == null) return AppColors.calendarDayOff;
-    if (isHoliday && !isWeekend) return AppColors.calendarPresent;
     if (record == null) return AppColors.calendarAbsent;
     if (record.status == 'leave' || record.status == 'approved_leave') return AppColors.calendarLeave;
     if (record.hasCheckedIn && record.hasCheckedOut) {
@@ -976,10 +1007,9 @@ class _HistoryScreenState extends State<HistoryScreen> {
     return AppColors.calendarAbsent;
   }
 
-  bool _isHoliday(DateTime date) {
-    final md = (date.month, date.day);
-    return const {(1, 1), (4, 30), (5, 1), (9, 2)}.contains(md);
-  }
+  bool _isHoliday(DateTime date) => _holidaysByDate.containsKey(_dateKey(date));
+
+  HolidayModel? _holidayOn(DateTime date) => _holidaysByDate[_dateKey(date)];
 
   Widget _buildLegend(ThemeData theme) {
     return Card(
@@ -992,6 +1022,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
             _legendItem(theme, AppColors.calendarIncomplete, 'Thiếu'),
             _legendItem(theme, AppColors.calendarAbsent, 'Vắng'),
             _legendItem(theme, AppColors.calendarLeave, 'Nghỉ phép'),
+            _legendItem(theme, AppColors.calendarHoliday, 'Ngày lễ'),
             _legendItem(theme, AppColors.calendarDayOff, 'Cuối tuần'),
           ],
         ),
@@ -1012,32 +1043,54 @@ class _HistoryScreenState extends State<HistoryScreen> {
 
   Widget _buildSummary(ThemeData theme, List<AttendanceModel> records) {
     final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
     final daysInMonth = DateTime(_currentMonth.year, _currentMonth.month + 1, 0).day;
     final isCurrentMonth = _currentMonth.year == now.year && _currentMonth.month == now.month;
-    final maxDay = isCurrentMonth ? now.day : daysInMonth;
+    final isFutureMonth = _currentMonth.isAfter(DateTime(now.year, now.month, 1));
+
+    // Số ngày làm việc tính đến hôm nay (tháng tương lai → 0; tháng quá khứ → cả tháng)
+    final maxDayForWork = isFutureMonth ? 0 : (isCurrentMonth ? now.day : daysInMonth);
 
     var workDays = 0;
-    for (var d = 1; d <= maxDay; d++) {
+    for (var d = 1; d <= maxDayForWork; d++) {
       final date = DateTime(_currentMonth.year, _currentMonth.month, d);
       if (date.weekday < 6) workDays++;
     }
-    var holidayWorkDays = 0;
-    for (var d = 1; d <= maxDay; d++) {
+
+    // Holiday: đếm tất cả ngày lễ trong tháng (kể cả ngày chưa tới) để hiển thị section
+    var holidayDays = 0;
+    for (var d = 1; d <= daysInMonth; d++) {
       final date = DateTime(_currentMonth.year, _currentMonth.month, d);
-      if (date.weekday < 6 && _isHoliday(date)) holidayWorkDays++;
+      if (_isHoliday(date)) holidayDays++;
+    }
+    // Paid holiday chỉ tính ngày lễ đã qua/hôm nay không có check-in
+    var paidHolidayPast = 0;
+    for (var d = 1; d <= daysInMonth; d++) {
+      final date = DateTime(_currentMonth.year, _currentMonth.month, d);
+      if (date.isAfter(today)) continue;
+      if (!_isHoliday(date)) continue;
+      final rec = records.where((r) => _dateKey(r.date) == _dateKey(date)).cast<AttendanceModel?>().firstWhere((_) => true, orElse: () => null);
+      if (rec == null || !rec.hasCheckedIn) paidHolidayPast++;
     }
 
     // Nghỉ phép đã duyệt (leave, half_day_leave) tính là đủ công
     const leaveStatuses = {'leave', 'half_day_leave'};
 
+    // Ngày lễ có đi làm (có checkin) — chỉ tính ngày đã qua/hôm nay
+    final recordsOnHoliday = records.where((r) =>
+        _isHoliday(r.date) && !r.date.isAfter(today) && r.hasCheckedIn).toList();
+    final holidayRecordDates = recordsOnHoliday.map((r) => _dateKey(r.date)).toSet();
+
     final fullDays = records.where((r) =>
         leaveStatuses.contains(r.status) ||
-        (r.hasCheckedIn && r.hasCheckedOut && r.workHours >= 8)).length + holidayWorkDays;
+        (r.hasCheckedIn && r.hasCheckedOut && r.workHours >= 8)).length + paidHolidayPast;
 
     final incompleteDays = records.where((r) =>
         !leaveStatuses.contains(r.status) &&
         (r.hasCheckedIn || r.hasCheckedOut) &&
         !(r.hasCheckedIn && r.hasCheckedOut && r.workHours >= 8)).length;
+
+    final absentDays = (workDays - fullDays - incompleteDays).clamp(0, workDays);
 
     return Card(
       child: Padding(
@@ -1050,10 +1103,19 @@ class _HistoryScreenState extends State<HistoryScreen> {
               children: [
                 _summaryItem(theme, '$fullDays', 'Đủ công', AppColors.calendarPresent),
                 _summaryItem(theme, '$incompleteDays', 'Thiếu', AppColors.calendarIncomplete),
-                _summaryItem(theme, '${workDays - fullDays - incompleteDays}', 'Vắng', AppColors.calendarAbsent),
+                _summaryItem(theme, '$absentDays', 'Vắng', AppColors.calendarAbsent),
                 _summaryItem(theme, '$workDays', 'Ngày làm', AppColors.primary),
               ],
             ),
+            if (holidayDays > 0) ...[
+              const Divider(height: 24),
+              Row(
+                children: [
+                  _summaryItem(theme, '${holidayRecordDates.length}', 'Làm ngày lễ', AppColors.calendarHoliday),
+                  _summaryItem(theme, '$paidHolidayPast', 'Nghỉ lễ hưởng lương', AppColors.info),
+                ],
+              ),
+            ],
           ],
         ),
       ),
@@ -1174,9 +1236,10 @@ class _HistoryScreenState extends State<HistoryScreen> {
     final theme = Theme.of(context);
     final today = DateTime.now();
     final isWeekend = date.weekday == 6 || date.weekday == 7;
+    final holiday = _holidayOn(date);
 
-    // Không hiện sheet cho cuối tuần
-    if (isWeekend) return;
+    // Không hiện sheet cho cuối tuần (trừ khi là ngày lễ — vẫn show để user biết)
+    if (isWeekend && holiday == null) return;
 
     final existingLeave = _leavesByDate[_dateKey(date)];
 
@@ -1207,19 +1270,19 @@ class _HistoryScreenState extends State<HistoryScreen> {
                 ),
                 Builder(builder: (_) {
                   final isFuture = date.isAfter(DateTime(today.year, today.month, today.day));
-                  final label = isFuture ? 'Ngày tương lai' : 'Vắng mặt';
-                  final color = isFuture ? AppColors.textSecondary : AppColors.error;
+                  // Ngày tương lai: không hiện chip
+                  if (isFuture) return const SizedBox.shrink();
                   return Container(
                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                     decoration: BoxDecoration(
-                      color: color.withValues(alpha: 0.15),
+                      color: AppColors.error.withValues(alpha: 0.15),
                       borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: color.withValues(alpha: 0.4)),
+                      border: Border.all(color: AppColors.error.withValues(alpha: 0.4)),
                     ),
-                    child: Text(
-                      label,
+                    child: const Text(
+                      'Vắng mặt',
                       style: TextStyle(
-                        color: color,
+                        color: AppColors.error,
                         fontSize: 12,
                         fontWeight: FontWeight.w600,
                       ),
@@ -1229,6 +1292,42 @@ class _HistoryScreenState extends State<HistoryScreen> {
               ],
             ),
             const SizedBox(height: 20),
+            if (holiday != null) ...[
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppColors.calendarHoliday.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: AppColors.calendarHoliday.withValues(alpha: 0.3)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.celebration, color: AppColors.calendarHoliday, size: 20),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            holiday.name,
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.calendarHoliday,
+                            ),
+                          ),
+                          Text(
+                            '${holiday.typeDisplay}${holiday.isCompensated ? " · Nghỉ bù" : ""}',
+                            style: theme.textTheme.bodySmall?.copyWith(color: AppColors.textSecondary),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+            ],
             // Hiện trạng thái nghỉ phép nếu đã có đơn, ngược lại hiện button đăng ký
             if (existingLeave != null)
               _buildLeaveStatus(theme, existingLeave)

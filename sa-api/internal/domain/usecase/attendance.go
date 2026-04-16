@@ -49,7 +49,8 @@ type AttendanceUsecase interface {
 	// GetByID lấy thông tin một bản ghi chấm công
 	GetByID(ctx context.Context, id uint) (*entity.AttendanceLog, error)
 
-	// GetList lấy danh sách chấm công với phân trang và lọc
+	// GetList lấy danh sách chấm công với phân trang và lọc.
+	// Khi filter.Status = "absent" → delegate sang FindAbsentDays (query derived).
 	GetList(ctx context.Context, filter repository.AttendanceFilter) ([]*entity.AttendanceLog, int64, error)
 
 	// GetMyToday lấy thông tin chấm công của user trong ngày hôm nay

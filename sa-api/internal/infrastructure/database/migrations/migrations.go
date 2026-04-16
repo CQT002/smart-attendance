@@ -451,5 +451,80 @@ func GetMigrations() []*gormigrate.Migration {
 				return nil // data fix, không rollback
 			},
 		},
+
+		// ── 016: Tạo bảng holidays + partial unique index + seed VN 2026 ──
+		{
+			ID: "20260413000001",
+			Migrate: func(tx *gorm.DB) error {
+				type Holiday struct {
+					entity.Holiday
+				}
+				if err := tx.AutoMigrate(&Holiday{}); err != nil {
+					return err
+				}
+
+				// Partial unique index: 1 ngày chỉ có 1 holiday active
+				// (soft-deleted rows bị loại bỏ — cho phép tạo lại holiday mới trên cùng date sau khi xoá)
+				if err := tx.Exec(`
+					CREATE UNIQUE INDEX IF NOT EXISTS uniq_holiday_date
+						ON holidays (date)
+						WHERE deleted_at IS NULL
+				`).Error; err != nil {
+					return err
+				}
+
+				// Seed ngày lễ Việt Nam 2026 (coefficient 3.00 = 300% theo Luật LĐ 2019)
+				seeds := []string{
+					`INSERT INTO holidays (name, date, year, coefficient, type, is_compensated, description, created_at, updated_at)
+					 VALUES ('Tết Dương lịch', '2026-01-01', 2026, 3.00, 'national', false, 'Tết Dương lịch', NOW(), NOW())
+					 ON CONFLICT DO NOTHING`,
+					`INSERT INTO holidays (name, date, year, coefficient, type, is_compensated, description, created_at, updated_at)
+					 VALUES ('Giao thừa Tết Nguyên đán', '2026-02-16', 2026, 3.00, 'national', false, 'Âm 29 tháng Chạp', NOW(), NOW())
+					 ON CONFLICT DO NOTHING`,
+					`INSERT INTO holidays (name, date, year, coefficient, type, is_compensated, description, created_at, updated_at)
+					 VALUES ('Mùng 1 Tết Bính Ngọ', '2026-02-17', 2026, 3.00, 'national', false, 'Âm mùng 1 tháng Giêng', NOW(), NOW())
+					 ON CONFLICT DO NOTHING`,
+					`INSERT INTO holidays (name, date, year, coefficient, type, is_compensated, description, created_at, updated_at)
+					 VALUES ('Mùng 2 Tết Bính Ngọ', '2026-02-18', 2026, 3.00, 'national', false, 'Âm mùng 2 tháng Giêng', NOW(), NOW())
+					 ON CONFLICT DO NOTHING`,
+					`INSERT INTO holidays (name, date, year, coefficient, type, is_compensated, description, created_at, updated_at)
+					 VALUES ('Mùng 3 Tết Bính Ngọ', '2026-02-19', 2026, 3.00, 'national', false, 'Âm mùng 3 tháng Giêng', NOW(), NOW())
+					 ON CONFLICT DO NOTHING`,
+					`INSERT INTO holidays (name, date, year, coefficient, type, is_compensated, description, created_at, updated_at)
+					 VALUES ('Mùng 4 Tết Bính Ngọ', '2026-02-20', 2026, 3.00, 'national', false, 'Âm mùng 4 tháng Giêng', NOW(), NOW())
+					 ON CONFLICT DO NOTHING`,
+					`INSERT INTO holidays (name, date, year, coefficient, type, is_compensated, description, created_at, updated_at)
+					 VALUES ('Giỗ Tổ Hùng Vương', '2026-04-26', 2026, 3.00, 'national', false, 'Âm 10 tháng 3', NOW(), NOW())
+					 ON CONFLICT DO NOTHING`,
+					`INSERT INTO holidays (name, date, year, coefficient, type, is_compensated, description, created_at, updated_at)
+					 VALUES ('Giải phóng miền Nam 30/4', '2026-04-30', 2026, 3.00, 'national', false, 'Ngày Giải phóng miền Nam, thống nhất đất nước', NOW(), NOW())
+					 ON CONFLICT DO NOTHING`,
+					`INSERT INTO holidays (name, date, year, coefficient, type, is_compensated, description, created_at, updated_at)
+					 VALUES ('Quốc tế Lao động 1/5', '2026-05-01', 2026, 3.00, 'national', false, 'Ngày Quốc tế Lao động', NOW(), NOW())
+					 ON CONFLICT DO NOTHING`,
+					`INSERT INTO holidays (name, date, year, coefficient, type, is_compensated, description, created_at, updated_at)
+					 VALUES ('Quốc khánh 2/9', '2026-09-02', 2026, 3.00, 'national', false, 'Ngày Quốc khánh', NOW(), NOW())
+					 ON CONFLICT DO NOTHING`,
+					`INSERT INTO holidays (name, date, year, coefficient, type, is_compensated, description, created_at, updated_at)
+					 VALUES ('Quốc khánh — nghỉ bù', '2026-09-03', 2026, 3.00, 'national', true, 'Nghỉ bù cho Quốc khánh rơi vào Thứ 4', NOW(), NOW())
+					 ON CONFLICT DO NOTHING`,
+				}
+				// Fix is_compensated row — set compensate_for column
+				for _, s := range seeds {
+					if err := tx.Exec(s).Error; err != nil {
+						return err
+					}
+				}
+				// Update compensate_for cho bản ghi nghỉ bù 2026-09-03
+				if err := tx.Exec(`UPDATE holidays SET compensate_for = '2026-09-02' WHERE date = '2026-09-03'`).Error; err != nil {
+					return err
+				}
+				return nil
+			},
+			Rollback: func(tx *gorm.DB) error {
+				tx.Exec(`DROP INDEX IF EXISTS uniq_holiday_date`)
+				return tx.Migrator().DropTable("holidays")
+			},
+		},
 	}
 }

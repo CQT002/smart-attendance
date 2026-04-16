@@ -20,6 +20,8 @@ const (
 	StatusHalfDayLeave   AttendanceStatus = "half_day_leave"   // Nghỉ phép nửa ngày
 	StatusMissingCheckin  AttendanceStatus = "missing_checkin"  // OT: thiếu check-in
 	StatusMissingCheckout AttendanceStatus = "missing_checkout" // OT: thiếu check-out
+	StatusPaidHoliday     AttendanceStatus = "paid_holiday"     // Nghỉ lễ hưởng lương (dẫn xuất từ bảng holidays)
+	StatusHolidayWork     AttendanceStatus = "holiday_work"     // Làm việc trong ngày lễ (dẫn xuất — không lưu DB)
 )
 
 // CheckMethod phương thức xác thực vị trí

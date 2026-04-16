@@ -27,6 +27,7 @@ import (
 	ucAttendance "github.com/hdbank/smart-attendance/internal/usecase/attendance"
 	ucBranch "github.com/hdbank/smart-attendance/internal/usecase/branch"
 	ucCorrection "github.com/hdbank/smart-attendance/internal/usecase/correction"
+	ucHoliday "github.com/hdbank/smart-attendance/internal/usecase/holiday"
 	ucLeave "github.com/hdbank/smart-attendance/internal/usecase/leave"
 	ucOvertime "github.com/hdbank/smart-attendance/internal/usecase/overtime"
 	ucReport "github.com/hdbank/smart-attendance/internal/usecase/report"
@@ -93,6 +94,7 @@ func main() {
 	leaveRepo := repository.NewLeaveRepository(db)
 	overtimeRepo := repository.NewOvertimeRepository(db)
 	schedulerRepo := repository.NewSchedulerRepository(db)
+	holidayRepo := repository.NewHolidayRepository(db)
 
 	// ── 6. Init Usecases ──
 	userUC := ucUser.NewUserUsecase(userRepo, redisCache, cfg.JWT)
@@ -104,6 +106,13 @@ func main() {
 	correctionUC := ucCorrection.NewCorrectionUsecase(correctionRepo, attendanceRepo, overtimeRepo, userRepo, shiftRepo, db, cfg.Correction)
 	leaveUC := ucLeave.NewLeaveUsecase(leaveRepo, correctionRepo, overtimeRepo, attendanceRepo, userRepo, shiftRepo, db)
 	overtimeUC := ucOvertime.NewOvertimeUsecase(overtimeRepo, userRepo, attendanceRepo, shiftRepo, db, cfg.Overtime)
+	holidayUC := ucHoliday.NewHolidayUsecase(holidayRepo, redisCache)
+	holidayCalc := ucHoliday.NewCalculator(ucHoliday.CalcDeps{
+		AttendanceRepo: attendanceRepo,
+		LeaveRepo:      leaveRepo,
+		ShiftRepo:      shiftRepo,
+		HolidayRepo:    holidayRepo,
+	})
 
 	// ── 7. Init Handlers ──
 	// User app handlers
@@ -112,6 +121,7 @@ func main() {
 	correctionH := handlerUser.NewCorrectionHandler(correctionUC)
 	leaveH := handlerUser.NewLeaveHandler(leaveUC)
 	overtimeH := handlerUser.NewOvertimeHandler(overtimeUC)
+	holidayH := handlerUser.NewHolidayHandler(holidayUC, holidayCalc, userRepo)
 	// Admin portal handlers
 	adminAuthH := handlerAdmin.NewAdminAuthHandler(userUC)
 	userH := handlerAdmin.NewUserHandler(userUC)
@@ -123,6 +133,7 @@ func main() {
 	reportH := handlerAdmin.NewReportHandler(reportUC)
 	wifiConfigH := handlerAdmin.NewWiFiConfigHandler(wifiConfigRepo)
 	shiftH := handlerAdmin.NewShiftHandler(shiftRepo)
+	adminHolidayH := handlerAdmin.NewHolidayHandler(holidayUC)
 
 	// ── 8. Start background schedulers (DB-driven) ──
 	schedulerMgr := scheduler.NewManager(schedulerRepo)
@@ -158,6 +169,8 @@ func main() {
 		ReportHandler:          reportH,
 		WiFiConfigHandler:      wifiConfigH,
 		ShiftHandler:           shiftH,
+		AdminHolidayHandler:    adminHolidayH,
+		HolidayHandler:         holidayH,
 		Cache:                  redisCache,
 		JWTSecret:              cfg.JWT.Secret,
 	})
