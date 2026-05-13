@@ -55,20 +55,22 @@ class _HistoryScreenState extends State<HistoryScreen> {
     super.dispose();
   }
 
-  void _loadMonth() {
+  Future<void> _loadMonth() async {
     final from = AppDateUtils.startOfMonth(_currentMonth);
     final to = AppDateUtils.endOfMonth(_currentMonth);
     context.read<AttendanceBloc>().add(
           AttendanceLoadHistory(from: from, to: to),
         );
-    _loadCorrections();
-    _loadLeaves();
-    _loadOvertime();
-    _loadHolidays();
     setState(() {
       _selectedDayRecord = null;
       _selectedDay = null;
     });
+    await Future.wait([
+      _loadCorrections(),
+      _loadLeaves(),
+      _loadOvertime(),
+      _loadHolidays(),
+    ]);
   }
 
   Future<void> _loadCorrections() async {
@@ -695,22 +697,26 @@ class _HistoryScreenState extends State<HistoryScreen> {
                     recordMap[_dateKey(r.date)] = r;
                   }
 
-                  return SingleChildScrollView(
-                    controller: _scrollController,
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: Column(
-                      children: [
-                        _buildCalendar(theme, recordMap),
-                        const SizedBox(height: 16),
-                        _buildLegend(theme),
-                        const SizedBox(height: 16),
-                        _buildSummary(theme, records),
-                        if (_selectedDay != null && _selectedDayRecord == null) ...[
+                  return RefreshIndicator(
+                    onRefresh: _loadMonth,
+                    child: SingleChildScrollView(
+                      controller: _scrollController,
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      child: Column(
+                        children: [
+                          _buildCalendar(theme, recordMap),
                           const SizedBox(height: 16),
-                          _buildNoRecordCard(theme),
+                          _buildLegend(theme),
+                          const SizedBox(height: 16),
+                          _buildSummary(theme, records),
+                          if (_selectedDay != null && _selectedDayRecord == null) ...[
+                            const SizedBox(height: 16),
+                            _buildNoRecordCard(theme),
+                          ],
+                          const SizedBox(height: 24),
                         ],
-                        const SizedBox(height: 24),
-                      ],
+                      ),
                     ),
                   );
                 },
@@ -1270,8 +1276,8 @@ class _HistoryScreenState extends State<HistoryScreen> {
                 ),
                 Builder(builder: (_) {
                   final isFuture = date.isAfter(DateTime(today.year, today.month, today.day));
-                  // Ngày tương lai: không hiện chip
-                  if (isFuture) return const SizedBox.shrink();
+                  // Ngày tương lai hoặc ngày lễ không có chấm công: không hiện chip Vắng mặt
+                  if (isFuture || holiday != null) return const SizedBox.shrink();
                   return Container(
                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                     decoration: BoxDecoration(
@@ -1329,9 +1335,10 @@ class _HistoryScreenState extends State<HistoryScreen> {
               const SizedBox(height: 16),
             ],
             // Hiện trạng thái nghỉ phép nếu đã có đơn, ngược lại hiện button đăng ký
+            // Ngày lễ không có chấm công: chỉ hiển thị thông tin ngày lễ, không cho đăng ký nghỉ phép
             if (existingLeave != null)
               _buildLeaveStatus(theme, existingLeave)
-            else
+            else if (holiday == null)
               SizedBox(
                 width: double.infinity,
                 height: 48,

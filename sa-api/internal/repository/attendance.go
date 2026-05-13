@@ -260,8 +260,18 @@ func (r *attendanceRepository) GetSummary(ctx context.Context, userID uint, from
 
 	var result Result
 	err := r.db.WithContext(ctx).Raw(`
+		WITH working_days AS (
+			SELECT COUNT(*)::int as total
+			FROM generate_series(
+				GREATEST(?::date, (SELECT created_at::date FROM users WHERE id = ?)),
+				?::date,
+				'1 day'::interval
+			) d(d)
+			WHERE EXTRACT(DOW FROM d.d) NOT IN (0, 6)
+				AND d.d::date NOT IN (SELECT h.date FROM holidays h WHERE h.deleted_at IS NULL)
+		)
 		SELECT
-			COUNT(*) as total_days,
+			(SELECT total FROM working_days) as total_days,
 			COUNT(CASE WHEN status = 'present'
 				AND check_in_time IS NOT NULL AND check_out_time IS NOT NULL THEN 1 END) as present_count,
 			COUNT(CASE WHEN status IN ('late', 'late_early_leave') THEN 1 END) as late_count,
@@ -279,7 +289,7 @@ func (r *attendanceRepository) GetSummary(ctx context.Context, userID uint, from
 				AND ot.deleted_at IS NULL), 0) as total_overtime
 		FROM attendance_logs
 		WHERE user_id = ? AND date BETWEEN ? AND ? AND deleted_at IS NULL
-	`, from.Format("2006-01-02"), to.Format("2006-01-02"), userID, from.Format("2006-01-02"), to.Format("2006-01-02")).Scan(&result).Error
+	`, from.Format("2006-01-02"), userID, to.Format("2006-01-02"), from.Format("2006-01-02"), to.Format("2006-01-02"), userID, from.Format("2006-01-02"), to.Format("2006-01-02")).Scan(&result).Error
 
 	if err != nil {
 		return nil, apperrors.Wrap(err, 500, "DB_ERROR", "Lỗi tổng hợp chấm công")
@@ -324,7 +334,7 @@ func (r *attendanceRepository) GetBranchSummary(ctx context.Context, branchID ui
 			u.name as user_name,
 			u.employee_code,
 			u.department,
-			COUNT(a.id) as total_days,
+			wd.total_days,
 			-- Đúng giờ: status=present VÀ phải có cả check_in + check_out (loại bỏ ngày thiếu)
 			COUNT(CASE WHEN a.status = 'present'
 				AND a.check_in_time IS NOT NULL AND a.check_out_time IS NOT NULL THEN 1 END) as present_count,
@@ -341,13 +351,13 @@ func (r *attendanceRepository) GetBranchSummary(ctx context.Context, branchID ui
 			COALESCE((SELECT SUM(ot.total_hours) FROM overtime_requests ot
 				WHERE ot.user_id = u.id AND ot.date BETWEEN ? AND ?
 				AND ot.status = 'approved' AND ot.deleted_at IS NULL), 0) as total_overtime,
-			-- Chuyên cần = (có mặt đủ + trễ + nghỉ phép) / tổng ngày
-			CASE WHEN COUNT(a.id) > 0
+			-- Chuyên cần = (có mặt đủ + trễ + nghỉ phép) / tổng ngày làm việc kỳ vọng
+			CASE WHEN wd.total_days > 0
 				THEN ROUND(
 					(COUNT(CASE WHEN a.status IN ('present','late','early_leave','late_early_leave','half_day')
 						AND a.check_in_time IS NOT NULL AND a.check_out_time IS NOT NULL THEN 1 END)
 					 + COUNT(CASE WHEN a.status IN ('leave', 'half_day_leave') THEN 1 END)
-					)::numeric / COUNT(a.id) * 100, 2
+					)::numeric / wd.total_days * 100, 2
 				)
 				ELSE 0
 			END as attendance_rate,
@@ -363,12 +373,24 @@ func (r *attendanceRepository) GetBranchSummary(ctx context.Context, branchID ui
 				ELSE 0
 			END as on_time_rate
 		FROM users u
+		CROSS JOIN LATERAL (
+			SELECT COUNT(*)::int as total_days
+			FROM generate_series(
+				GREATEST(?::date, u.created_at::date),
+				?::date,
+				'1 day'::interval
+			) d(d)
+			WHERE EXTRACT(DOW FROM d.d) NOT IN (0, 6)
+				AND d.d::date NOT IN (
+					SELECT h.date FROM holidays h WHERE h.deleted_at IS NULL
+				)
+		) wd
 		LEFT JOIN attendance_logs a ON a.user_id = u.id
 			AND a.date BETWEEN ? AND ? AND a.deleted_at IS NULL
 		WHERE u.branch_id = ? AND u.is_active = true AND u.role = 'employee' AND u.deleted_at IS NULL
-		GROUP BY u.id, u.name, u.employee_code, u.department
+		GROUP BY u.id, u.name, u.employee_code, u.department, wd.total_days
 		ORDER BY u.name
-	`, from.Format("2006-01-02"), to.Format("2006-01-02"), from.Format("2006-01-02"), to.Format("2006-01-02"), branchID).
+	`, from.Format("2006-01-02"), to.Format("2006-01-02"), from.Format("2006-01-02"), to.Format("2006-01-02"), from.Format("2006-01-02"), to.Format("2006-01-02"), branchID).
 		Scan(&results).Error
 
 	if err != nil {
@@ -459,7 +481,7 @@ func (r *attendanceRepository) GetTodayStatsByBranch(ctx context.Context, branch
 				COUNT(CASE WHEN a.status = 'half_day'    THEN 1 END) AS half_day_count,
 				COUNT(CASE WHEN a.is_fake_gps = true OR a.is_vpn = true THEN 1 END) AS suspicious_count
 			FROM attendance_logs a
-			WHERE a.date = CURRENT_DATE AND a.deleted_at IS NULL
+			WHERE a.date = ? AND a.deleted_at IS NULL
 			GROUP BY a.branch_id
 		)
 		SELECT
@@ -493,7 +515,8 @@ func (r *attendanceRepository) GetTodayStatsByBranch(ctx context.Context, branch
 		LIMIT ? OFFSET ?
 	`, branchFilter)
 
-	dataArgs := append(args, limit, offset)
+	todayStr := utils.Today().Format("2006-01-02")
+	dataArgs := append(args, todayStr, limit, offset)
 	var results []*domainrepo.BranchTodayStats
 	if err := r.db.WithContext(ctx).Raw(dataSQL, dataArgs...).Scan(&results).Error; err != nil {
 		return nil, 0, apperrors.Wrap(err, 500, "DB_ERROR", "Lỗi thống kê chấm công hôm nay")
@@ -541,13 +564,14 @@ func (r *attendanceRepository) GetTodayEmployeeDetails(ctx context.Context, filt
 				COALESCE(a.fraud_note, '')                                   AS fraud_note
 			FROM users u
 			JOIN branches b ON b.id = u.branch_id AND b.is_active = true AND b.deleted_at IS NULL
-			LEFT JOIN attendance_logs a ON a.user_id = u.id AND a.date = CURRENT_DATE AND a.deleted_at IS NULL
+			LEFT JOIN attendance_logs a ON a.user_id = u.id AND a.date = ? AND a.deleted_at IS NULL
 			WHERE u.is_active = true AND u.role = 'employee' AND u.deleted_at IS NULL %s
 		)
 	`, branchClause)
 
 	// ── Build args ──
-	var baseArgs []interface{}
+	todayStr := utils.Today().Format("2006-01-02")
+	baseArgs := []interface{}{todayStr}
 	if filter.BranchID != nil {
 		baseArgs = append(baseArgs, *filter.BranchID)
 	}

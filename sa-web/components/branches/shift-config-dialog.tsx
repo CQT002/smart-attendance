@@ -30,6 +30,7 @@ import { Clock, Plus, Pencil, Trash2, Check, X } from "lucide-react";
 import { Branch } from "@/types/branch";
 import { useShifts, useCreateShift, useUpdateShift, useDeleteShift } from "@/hooks/use-shifts";
 import { Shift, DAY_NAMES, CreateShiftRequest, UpdateShiftRequest } from "@/services/shift.service";
+import { useCurrentUser } from "@/hooks/use-auth";
 
 interface ShiftConfigDialogProps {
   branch: Branch;
@@ -55,6 +56,8 @@ const DEFAULT_FORM: CreateShiftRequest = {
 };
 
 export function ShiftConfigDialog({ branch, open, onClose }: ShiftConfigDialogProps) {
+  const { data: currentUser } = useCurrentUser();
+  const isAdmin = currentUser?.role === "admin";
   const { data: shifts, isLoading } = useShifts(branch.id);
   const createMut = useCreateShift(branch.id);
   const updateMut = useUpdateShift(branch.id);
@@ -134,7 +137,7 @@ export function ShiftConfigDialog({ branch, open, onClose }: ShiftConfigDialogPr
                     <TableHead>Khung chính thức</TableHead>
                     <TableHead>OT</TableHead>
                     <TableHead>Trạng thái</TableHead>
-                    <TableHead className="w-[80px]"></TableHead>
+                    {isAdmin && <TableHead className="w-[80px]"></TableHead>}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -160,16 +163,18 @@ export function ShiftConfigDialog({ branch, open, onClose }: ShiftConfigDialogPr
                           {shift.is_active ? "Bật" : "Tắt"}
                         </Badge>
                       </TableCell>
-                      <TableCell>
-                        <div className="flex gap-1">
-                          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleEdit(shift)}>
-                            <Pencil className="h-3.5 w-3.5" />
-                          </Button>
-                          <Button variant="ghost" size="icon" className="h-7 w-7 text-red-500" onClick={() => handleDelete(shift.id)}>
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
-                        </div>
-                      </TableCell>
+                      {isAdmin && (
+                        <TableCell>
+                          <div className="flex gap-1">
+                            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleEdit(shift)}>
+                              <Pencil className="h-3.5 w-3.5" />
+                            </Button>
+                            <Button variant="ghost" size="icon" className="h-7 w-7 text-red-500" onClick={() => handleDelete(shift.id)}>
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      )}
                     </TableRow>
                   ))}
                 </TableBody>
@@ -183,14 +188,14 @@ export function ShiftConfigDialog({ branch, open, onClose }: ShiftConfigDialogPr
           )}
 
           {/* Nút thêm */}
-          {!showForm && (
+          {isAdmin && !showForm && (
             <Button variant="outline" className="w-full" onClick={() => { resetForm(); setShowForm(true); }}>
               <Plus className="h-4 w-4 mr-2" /> Thêm ca làm việc
             </Button>
           )}
 
           {/* Form tạo/sửa */}
-          {showForm && (
+          {isAdmin && showForm && (
             <div className="border rounded-md p-4 space-y-4 bg-muted/30">
               <h4 className="font-medium text-sm">
                 {editingId ? "Chỉnh sửa ca" : "Thêm ca mới"}

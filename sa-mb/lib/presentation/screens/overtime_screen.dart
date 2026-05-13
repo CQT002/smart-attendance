@@ -22,6 +22,14 @@ class _OvertimeScreenState extends State<OvertimeScreen> {
     context.read<OvertimeBloc>().add(OvertimeLoadToday());
   }
 
+  Future<void> _refresh() async {
+    final bloc = context.read<OvertimeBloc>();
+    bloc.add(OvertimeLoadToday());
+    await bloc.stream.firstWhere(
+      (s) => s is OvertimeTodayLoaded || s is OvertimeFailure,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -39,13 +47,16 @@ class _OvertimeScreenState extends State<OvertimeScreen> {
           }
         },
         builder: (context, state) {
-          return SingleChildScrollView(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                // Lưu ý quy định
-                Container(
+          return RefreshIndicator(
+            onRefresh: _refresh,
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(16),
+              physics: const AlwaysScrollableScrollPhysics(),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  // Lưu ý quy định
+                  Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
                     color: Colors.orange.shade50,
@@ -81,6 +92,7 @@ class _OvertimeScreenState extends State<OvertimeScreen> {
                 // Nút Check-in / Check-out
                 _buildActionButtons(state),
               ],
+            ),
             ),
           );
         },
