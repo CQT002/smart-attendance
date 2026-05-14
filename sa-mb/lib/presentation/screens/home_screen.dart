@@ -129,7 +129,7 @@ class _HomeTabState extends State<_HomeTab> {
   void _fetchToday() async {
     final repo = context.read<AttendanceRepository>();
     final today = await repo.getTodayAttendance();
-    if (mounted && today != null) {
+    if (mounted) {
       setState(() => _lastKnownToday = today);
     }
   }
